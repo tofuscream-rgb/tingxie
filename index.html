@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>听写本 — Chinese flashcards and dictation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#EEF3F1; --surface:#FFFFFF; --surface-2:#F5F8F7; --ink:#1B2422; --muted:#5E6E6A; --line:#D3DEDA;
+  --jade:#22705F; --jade-soft:#D8EBE5; --grid:#D2453B; --grid-soft:rgba(210,69,59,.35);
+  --ok:#22705F; --ok-bg:#DCEFE8; --bad:#B4362D; --bad-bg:#F8E0DD; --miss:#9A6A10; --miss-bg:#F6ECD3;
+  --again:#B4362D; --hard:#9A6A10; --good:#22705F; --easy:#2D5E9E;
+  color-scheme:light;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121917; --surface:#1A2321; --surface-2:#202B28; --ink:#E4ECE9; --muted:#9AABA6; --line:#2F3D39;
+    --jade:#5CC0A5; --jade-soft:#1F3A33; --grid:#E2675E; --grid-soft:rgba(226,103,94,.4);
+    --ok:#6FCBB0; --ok-bg:#1E3A32; --bad:#F08A80; --bad-bg:#3F2220; --miss:#E5B95A; --miss-bg:#3A3020;
+    --again:#F08A80; --hard:#E5B95A; --good:#6FCBB0; --easy:#86AEEA;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121917; --surface:#1A2321; --surface-2:#202B28; --ink:#E4ECE9; --muted:#9AABA6; --line:#2F3D39;
+  --jade:#5CC0A5; --jade-soft:#1F3A33; --grid:#E2675E; --grid-soft:rgba(226,103,94,.4);
+  --ok:#6FCBB0; --ok-bg:#1E3A32; --bad:#F08A80; --bad-bg:#3F2220; --miss:#E5B95A; --miss-bg:#3A3020;
+  --again:#F08A80; --hard:#E5B95A; --good:#6FCBB0; --easy:#86AEEA;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:Figtree,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.zh,.han{font-family:"Kaiti SC","STKaiti","KaiTi","BiauKai","Noto Serif SC","Songti SC",serif}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--jade);outline-offset:2px}
+.hidden{display:none!important}
+
+/* top bar */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+.top-in{max-width:880px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:8px;margin-right:auto}
+.brand b{font-size:22px;font-weight:700;letter-spacing:.02em}
+.brand span{color:var(--muted);font-size:13px}
+.tabs{display:flex;gap:2px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:3px}
+.tabs button{border:0;background:transparent;padding:6px 14px;border-radius:7px;font-weight:600;font-size:14px;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+select.deck{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:6px 10px;font-size:14px;max-width:220px}
+
+main{max-width:880px;margin:0 auto;padding:18px 16px 40px}
+
+/* review */
+.modes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;padding:8px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--jade);color:#fff}
+:root[data-theme="dark"] .seg button[aria-pressed="true"]{color:#0D1513}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .seg button[aria-pressed="true"]{color:#0D1513}}
+.counts{margin-left:auto;font-size:14px;color:var(--muted)}
+.counts b{color:var(--ink)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px 20px;min-height:380px;display:flex;flex-direction:column;align-items:center;gap:14px;position:relative}
+.cardtag{position:absolute;top:12px;left:14px;font-size:12px;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:20px;padding:1px 9px}
+
+/* 田字格 */
+.tzg-row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.tzg{position:relative;width:150px;height:150px;border:2px solid var(--grid);display:grid;place-items:center;color:var(--ink);background:var(--surface)}
+.tzg svg{position:absolute;inset:0;width:100%;height:100%;color:var(--grid-soft);pointer-events:none}
+.tzg .ch{position:relative;font-size:104px;line-height:1}
+.tzg.sm{width:64px;height:64px;border-width:1.5px}
+.tzg.sm .ch{font-size:44px}
+.tzg.xs{width:46px;height:46px;border-width:1.5px}
+.tzg.xs .ch{font-size:32px}
+.tzg.q .ch{color:var(--muted);font-family:Figtree,sans-serif;font-size:56px;font-weight:300}
+.tzg.ok{background:var(--ok-bg)} .tzg.ok .ch{color:var(--ok)}
+.tzg.bad{background:var(--bad-bg)} .tzg.bad .ch{color:var(--bad)}
+.tzg.miss{background:var(--miss-bg)} .tzg.miss .ch{color:var(--miss)}
+
+.py{font-size:26px;font-weight:600;color:var(--jade)}
+.mean{font-size:18px;text-align:center;max-width:46ch}
+.exs{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;width:100%;max-width:440px}
+.exs li{display:flex;align-items:center;gap:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+.exs .zh{font-size:22px}
+.exs small{color:var(--muted);font-size:14px;margin-left:auto;text-align:right}
+.icon-btn{border:1px solid var(--line);background:var(--surface);border-radius:50%;width:34px;height:34px;display:inline-grid;place-items:center;flex:none;color:var(--jade)}
+.icon-btn svg{width:16px;height:16px}
+.big-play{width:96px;height:96px;border-radius:50%;border:2px solid var(--jade);background:var(--jade-soft);color:var(--jade);display:grid;place-items:center}
+.big-play svg{width:38px;height:38px}
+.hint{font-size:14px;color:var(--muted)}
+.linkish{border:0;background:none;color:var(--jade);font-weight:600;padding:2px 4px;font-size:14px;text-decoration:underline;text-underline-offset:3px}
+
+.answer{width:100%;max-width:440px;display:flex;gap:8px}
+.answer input{flex:1;min-width:0;font-family:"Kaiti SC","STKaiti","KaiTi","Noto Serif SC",serif;font-size:28px;padding:8px 14px;border:2px solid var(--line);border-radius:12px;background:var(--surface-2);text-align:center}
+.answer input:focus{border-color:var(--jade);outline:none}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 16px;font-weight:600;font-size:15px}
+.btn.primary{background:var(--jade);border-color:var(--jade);color:#fff}
+:root[data-theme="dark"] .btn.primary{color:#0D1513}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn.primary{color:#0D1513}}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:default}
+.diff{display:flex;flex-direction:column;gap:8px;align-items:center}
+.diff .lbl{font-size:13px;color:var(--muted)}
+.verdict{font-weight:700;font-size:17px}
+.verdict.ok{color:var(--ok)} .verdict.bad{color:var(--bad)}
+
+.rate{display:grid;grid-template-columns:repeat(4,1fr) auto;gap:8px;margin-top:14px}
+.rate button{border:1.5px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 6px 8px;display:flex;flex-direction:column;align-items:center;gap:1px;font-weight:700;font-size:15px}
+.rate button small{font-weight:500;font-size:12px;color:var(--muted)}
+.rate button kbd{font-family:inherit;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-top:2px}
+.rate .r1{color:var(--again)} .rate .r2{color:var(--hard)} .rate .r3{color:var(--good)} .rate .r4{color:var(--easy)}
+.rate button.suggest{border-color:currentColor;box-shadow:0 0 0 2px color-mix(in srgb,currentColor 25%,transparent)}
+.rate .mst{color:var(--ink);padding:10px 14px}
+.flip{display:flex;justify-content:center;margin-top:14px}
+.flip .btn{min-width:220px}
+
+.empty{text-align:center;padding:40px 10px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.empty h2{margin:0;font-size:22px}
+.empty p{margin:0;color:var(--muted);max-width:44ch}
+.keys{margin-top:12px;font-size:13px;color:var(--muted);text-align:center}
+.keys kbd{font-family:inherit;border:1px solid var(--line);border-radius:4px;padding:0 5px;background:var(--surface)}
+.notice{background:var(--miss-bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:14px;margin-bottom:14px}
+
+/* lists */
+.pgrid{display:grid;grid-template-columns:220px 1fr;gap:16px;align-items:start}
+@media (max-width:700px){.pgrid{grid-template-columns:1fr}}
+.plist{display:flex;flex-direction:column;gap:6px}
+.plist button.pitem{text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 12px}
+.plist button.pitem[aria-current="true"]{border-color:var(--jade);background:var(--jade-soft)}
+.plist .pitem .zh{font-size:19px;display:block}
+.plist .pitem small{color:var(--muted);font-size:12px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+.panel h2{margin:0 0 4px;font-size:24px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.dots{display:flex;gap:5px;flex-wrap:wrap;margin:12px 0}
+.dots button{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface-2);font-size:12px;font-weight:600;color:var(--muted);padding:0}
+.dots button.cur{border-color:var(--jade);color:var(--jade)}
+.dots button.ok{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+.dots button.bad{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.fulltext{font-size:24px;line-height:1.9;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-top:12px;white-space:pre-wrap}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.field label{font-size:14px;font-weight:600}
+.field input,.field textarea{border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:var(--surface-2)}
+.field textarea{min-height:140px;font-size:19px;font-family:"Kaiti SC","STKaiti","KaiTi","Noto Serif SC",serif}
+.speed{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.speed input{accent-color:var(--jade)}
+
+/* decks */
+.decks{display:flex;flex-direction:column;gap:10px}
+.dk{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;flex-wrap:wrap}
+.dk.cur{border-color:var(--jade)}
+.dk .nm{font-weight:700;font-size:17px}
+.dk .meta{color:var(--muted);font-size:13px}
+.dk .grow{flex:1;min-width:160px}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:18px;text-align:center;background:var(--surface)}
+.drop.over{border-color:var(--jade);background:var(--jade-soft)}
+.drop p{margin:6px 0;color:var(--muted);font-size:14px}
+.drop code{font-size:13px;background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+.tbl-wrap{overflow-x:auto;margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:13px;color:var(--muted);font-weight:600;background:var(--surface-2)}
+td.han{font-size:24px}
+tr:last-child td{border-bottom:0}
+.pill{font-size:12px;border-radius:20px;padding:1px 8px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.pill.m{color:var(--ok);border-color:var(--ok);background:var(--ok-bg)}
+h3{margin:22px 0 10px;font-size:18px}
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:9px 14px;border-radius:10px;font-size:14px;display:flex;gap:12px;align-items:center;z-index:20;max-width:calc(100% - 32px)}
+.toast button{border:0;background:none;color:inherit;font-weight:700;text-decoration:underline}
+.qbar{height:6px;border-radius:6px;background:var(--line);overflow:hidden;margin:4px 0 12px}
+.qbar span{display:block;height:100%;background:var(--jade);transition:width .2s}
+.qopts{display:flex;flex-wrap:wrap;gap:6px 18px;margin:14px 0 4px}
+.qscore{font-size:64px;font-weight:700;line-height:1;color:var(--jade)}
+.qscore span{font-size:28px;color:var(--muted);font-weight:600}
+.qres{list-style:none;padding:0;margin:14px 0;display:flex;flex-direction:column;gap:6px}
+.qres li{display:flex;align-items:center;gap:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:6px 10px;flex-wrap:wrap}
+.qres .info{flex:1;min-width:140px;font-size:14px}
+.qres .info b{color:var(--jade);font-size:15px}
+.qres .wrote{font-size:13px;color:var(--bad)}
+@media (max-width:560px){
+  .tzg{width:124px;height:124px}.tzg .ch{font-size:86px}
+  .rate{grid-template-columns:repeat(4,1fr)}
+  .rate .mst{grid-column:1/-1}
+  .brand span{display:none}
+}
+@media (prefers-reduced-motion:no-preference){
+  .card.enter{animation:in .18s ease-out}
+  @keyframes in{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+}
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand"><b class="zh">听写本</b><span>Flashcards and dictation</span></div>
+  <select class="deck" id="deckSel" aria-label="Current deck"></select>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="review" aria-selected="true">Review</button>
+    <button role="tab" data-tab="quiz" aria-selected="false">Quiz</button>
+    <button role="tab" data-tab="decks" aria-selected="false">Decks</button>
+  </nav>
+</div></header>
+<main id="app"><p class="hint">Loading your decks…</p></main>
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script>
+const SEED_DECK = {"name": "一年级下册 L10–12", "cards": [{"id": "c0", "w": "诗", "p": "shī", "m": "poem; poetry", "ex": "古诗、诗人、诗歌", "exen": "ancient poem, poet, poetry"}, {"id": "c1", "w": "首", "p": "shǒu", "m": "head; measure word for songs", "ex": "一首歌、首先、首都", "exen": "a song, first of all, capital city"}, {"id": "c2", "w": "偷", "p": "tōu", "m": "steal; secretly", "ex": "小偷、偷看、偷懒", "exen": "thief, peek, slack off"}, {"id": "c3", "w": "浮", "p": "fú", "m": "float", "ex": "漂浮、浮起来、浮水", "exen": "float, float up, float on water"}, {"id": "c4", "w": "萍", "p": "píng", "m": "duckweed", "ex": "浮萍、青萍、萍水相逢", "exen": "duckweed, green duckweed, meet by chance"}, {"id": "c5", "w": "泉", "p": "quán", "m": "spring (water)", "ex": "泉水、温泉、喷泉", "exen": "spring water, hot spring, fountain"}, {"id": "c6", "w": "惜", "p": "xī", "m": "cherish; regret", "ex": "可惜、珍惜、爱惜", "exen": "what a pity, cherish, take good care of"}, {"id": "c7", "w": "照", "p": "zhào", "m": "shine; photograph", "ex": "照相、照顾、阳光照射", "exen": "take a photo, take care of, sunlight shines"}, {"id": "c8", "w": "柔", "p": "róu", "m": "soft; gentle", "ex": "温柔、柔软、轻柔", "exen": "gentle, soft, delicate"}, {"id": "c9", "w": "荷", "p": "hé", "m": "lotus", "ex": "荷花、荷叶、荷塘", "exen": "lotus flower, lotus leaf, lotus pond"}, {"id": "c10", "w": "露", "p": "lù", "m": "dew; reveal", "ex": "露水、露珠、露出", "exen": "dew, dewdrop, reveal"}, {"id": "c11", "w": "角", "p": "jiǎo", "m": "horn; corner", "ex": "角落、三角形、牛角", "exen": "corner, triangle, ox horn"}, {"id": "c12", "w": "浪", "p": "làng", "m": "wave", "ex": "海浪、浪花、浪费", "exen": "sea wave, splash, waste"}, {"id": "c13", "w": "迹", "p": "jì", "m": "trace; mark", "ex": "足迹、奇迹、痕迹", "exen": "footprint, miracle, trace"}, {"id": "c14", "w": "悄", "p": "qiāo", "m": "quietly", "ex": "悄悄、悄悄话、静悄悄", "exen": "quietly, whisper, very quiet"}, {"id": "c15", "w": "泪", "p": "lèi", "m": "tear", "ex": "眼泪、泪水、流泪", "exen": "tears, tears, shed tears"}, {"id": "c16", "w": "次", "p": "cì", "m": "time; occasion", "ex": "一次、下次、次数", "exen": "once, next time, number of times"}, {"id": "c17", "w": "给", "p": "gěi", "m": "give; for", "ex": "给你、送给、交给", "exen": "give you, give as a gift, hand over"}, {"id": "c18", "w": "壳", "p": "ké", "m": "shell", "ex": "贝壳、蛋壳、外壳", "exen": "seashell, eggshell, outer shell"}, {"id": "c19", "w": "虾", "p": "xiā", "m": "shrimp", "ex": "小虾、虾米、大虾", "exen": "little shrimp, dried shrimp, large shrimp"}, {"id": "c20", "w": "装", "p": "zhuāng", "m": "dress; install", "ex": "衣装、装满、安装", "exen": "clothing, fill up, install"}, {"id": "c21", "w": "像", "p": "xiàng", "m": "resemble; image", "ex": "好像、画像、像样", "exen": "seem like, portrait, presentable"}, {"id": "c22", "w": "淘", "p": "táo", "m": "wash; mischievous", "ex": "淘气、淘米、淘宝", "exen": "naughty, rinse rice, shop for bargains"}, {"id": "c23", "w": "娃", "p": "wá", "m": "baby; child", "ex": "娃娃、女娃、娃娃脸", "exen": "doll, little girl, baby face"}, {"id": "c24", "w": "珠", "p": "zhū", "m": "pearl; bead", "ex": "珍珠、水珠、珠子", "exen": "pearl, water droplet, bead"}, {"id": "c25", "w": "摇", "p": "yáo", "m": "shake; sway", "ex": "摇头、摇手、摇篮", "exen": "shake one's head, wave a hand, cradle"}, {"id": "c26", "w": "篮", "p": "lán", "m": "basket", "ex": "篮子、篮球、摇篮", "exen": "basket, basketball, cradle"}, {"id": "c27", "w": "亮", "p": "liàng", "m": "bright", "ex": "明亮、月亮、亮光", "exen": "bright, moon, bright light"}, {"id": "c28", "w": "晶", "p": "jīng", "m": "crystal; sparkling", "ex": "水晶、亮晶晶、晶莹", "exen": "crystal, sparkling, crystal-clear"}, {"id": "c29", "w": "停", "p": "tíng", "m": "stop", "ex": "停止、停车、停下", "exen": "stop, park, stop moving"}, {"id": "c30", "w": "坪", "p": "píng", "m": "level ground", "ex": "草坪、停机坪、晒谷坪", "exen": "lawn, airport apron, grain-drying ground"}, {"id": "c31", "w": "展", "p": "zhǎn", "m": "spread; display", "ex": "展开、展览、发展", "exen": "unfold, exhibition, develop"}, {"id": "c32", "w": "透", "p": "tòu", "m": "through; transparent", "ex": "透明、透气、看透", "exen": "transparent, breathable, see through"}, {"id": "c33", "w": "翅", "p": "chì", "m": "wing", "ex": "翅膀、鸡翅、展翅", "exen": "wing, chicken wing, spread wings"}, {"id": "c34", "w": "膀", "p": "bǎng", "m": "wing; shoulder", "ex": "翅膀、肩膀、臂膀", "exen": "wing, shoulder, arm"}, {"id": "c35", "w": "朵", "p": "duǒ", "m": "measure word for flowers/clouds", "ex": "一朵花、云朵、花朵", "exen": "a flower, cloud, flower blossom"}], "nextId": 36};
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const MIN = 60e3, DAY = 864e5;
+const todayKey = () => { const d = new Date(); return d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate(); };
+const uid = () => Math.random().toString(36).slice(2, 9);
+const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>';
+const GRID = '<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1" stroke-dasharray="4 3" fill="none" vector-effect="non-scaling-stroke"><line x1="50" y1="0" x2="50" y2="100" vector-effect="non-scaling-stroke"/><line x1="0" y1="50" x2="100" y2="50" vector-effect="non-scaling-stroke"/><line x1="0" y1="0" x2="100" y2="100" vector-effect="non-scaling-stroke"/><line x1="100" y1="0" x2="0" y2="100" vector-effect="non-scaling-stroke"/></g></svg>';
+const tzg = (ch, cls="") => `<div class="tzg ${cls}">${GRID}<span class="ch han">${esc(ch)}</span></div>`;
+const normalize = s => String(s||"").replace(/[\s\p{P}\p{S}]/gu, "");
+function splitExamples(card){
+  const zh = String(card.ex||"").split(/[、，,；;\/]/).map(s=>s.trim()).filter(Boolean);
+  const en = String(card.exen||"").split(/[,;\/]/).map(s=>s.trim());
+  return zh.map((z,i)=>({zh:z, en:en[i]||""}));
+}
+function fmtIvl(ms){
+  if (ms < 60*MIN) return Math.max(1, Math.round(ms/MIN))+"m";
+  if (ms < DAY) return Math.round(ms/(60*MIN))+"h";
+  const d = Math.round(ms/DAY);
+  if (d < 31) return d+"d";
+  if (d < 365) return (Math.round(d/30*10)/10)+"mo";
+  return (Math.round(d/365*10)/10)+"y";
+}
+function toast(msg, actionLabel, action){
+  const t = $("#toast");
+  t.innerHTML = esc(msg) + (actionLabel ? ` <button type="button">${esc(actionLabel)}</button>` : "");
+  t.classList.remove("hidden");
+  if (actionLabel) t.querySelector("button").onclick = () => { action(); t.classList.add("hidden"); };
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.add("hidden"), 5000);
+}
+
+/* ---------- storage: synced db when available, browser storage otherwise ---------- */
+const Store = {
+  mode: "local", col: null, pending: {}, timers: {}, busy: {},
+  async init(){
+    try {
+      if (window.claude && typeof window.claude.use === "function") {
+        const timeout = new Promise(r => setTimeout(() => r([null,null]), 8000));
+        const [db, user] = await Promise.race([Promise.all([window.claude.use("db"), window.claude.use("user")]), timeout]);
+        if (db && user) {
+          const id = await user.id();
+          if (id) { this.col = db.collection("data/users/" + id); this.mode = "db"; }
+        }
+      }
+    } catch (e) { this.mode = "local"; }
+  },
+  async get(key){
+    if (this.mode === "db") {
+      try { const s = await this.col.doc(key).get(); return s.exists ? JSON.parse(JSON.stringify(s.data())) : null; }
+      catch (e) { console.warn("db read failed", e); }
+    }
+    try { const v = localStorage.getItem("tingxie:"+key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  },
+  save(key, obj){
+    this.pending[key] = obj;
+    clearTimeout(this.timers[key]);
+    this.timers[key] = setTimeout(() => this.flush(key), 600);
+  },
+  async flush(key){
+    if (this.busy[key] || !(key in this.pending)) return;
+    const data = JSON.parse(JSON.stringify(this.pending[key])); delete this.pending[key];
+    this.busy[key] = true;
+    try {
+      if (this.mode === "db") await this.col.doc(key).set(data);
+      else localStorage.setItem("tingxie:"+key, JSON.stringify(data));
+    } catch (e) {
+      console.warn("save failed", e);
+      try { localStorage.setItem("tingxie:"+key, JSON.stringify(data)); } catch (_) {}
+      if (!Store._warned) { Store._warned = true; toast("Couldn’t sync your progress just now. It’s kept on this device."); }
+    }
+    this.busy[key] = false;
+    if (key in this.pending) this.flush(key);
+  },
+  async remove(key){
+    delete this.pending[key];
+    try { if (this.mode === "db") await this.col.doc(key).delete(); } catch (e) {}
+    try { localStorage.removeItem("tingxie:"+key); } catch (e) {}
+  }
+};
+
+/* ---------- state ---------- */
+const S = {
+  meta: null,           // {decks:[{id,name}], current, settings}
+  decks: {},            // id -> {name, cards, nextId}
+  prog: {},             // id -> {srs:{cid:{read,listen,dictate,m}}, daily:{date,new:{}}}
+  tab: "review",
+  mode: "read",
+};
+const saveMeta = () => Store.save("meta", S.meta);
+const saveDeck = id => Store.save("deck-"+id, S.decks[id]);
+const saveProg = id => Store.save("prog-"+id, S.prog[id]);
+const curDeck = () => S.decks[S.meta.current];
+const curProg = () => S.prog[S.meta.current];
+
+async function boot(){
+  await Store.init();
+  let meta = await Store.get("meta");
+  if (!meta || !meta.decks || !meta.decks.length) {
+    const id = "d" + uid();
+    meta = {decks:[{id, name:SEED_DECK.name}], current:id, settings:{newPerDay:15, rate:0.8, dictType:"word", retention:0.9}};
+    S.decks[id] = SEED_DECK; S.prog[id] = {srs:{}, daily:{}};
+    S.meta = meta;
+    saveMeta(); saveDeck(id); saveProg(id);
+  } else {
+    S.meta = meta;
+    S.meta.settings = Object.assign({newPerDay:15, rate:0.8, dictType:"word", retention:0.9}, meta.settings||{});
+    for (const d of meta.decks) {
+      S.decks[d.id] = (await Store.get("deck-"+d.id)) || {name:d.name, cards:[], nextId:0};
+      S.prog[d.id] = (await Store.get("prog-"+d.id)) || {srs:{}, daily:{}};
+    }
+    if (!S.decks[S.meta.current]) S.meta.current = meta.decks[0].id;
+  }
+  renderDeckSel();
+  buildSession();
+  render();
+}
+
+/* ---------- speech ---------- */
+const TTS = {
+  voice: null, ready: false,
+  init(){
+    if (!("speechSynthesis" in window)) return;
+    const pick = () => {
+      const vs = speechSynthesis.getVoices();
+      this.voice = vs.find(v => /^zh[-_]CN/i.test(v.lang)) || vs.find(v => /^zh/i.test(v.lang) && !/HK|yue/i.test(v.lang)) || null;
+      this.ready = vs.length > 0;
+    };
+    pick(); speechSynthesis.onvoiceschanged = () => { pick(); if (S.tab === "review") renderNotice(); };
+  },
+  speak(text, rateMul=1){
+    if (!("speechSynthesis" in window) || !text) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "zh-CN"; if (this.voice) u.voice = this.voice;
+    u.rate = Math.max(0.4, Math.min(1.3, S.meta.settings.rate * rateMul));
+    speechSynthesis.speak(u);
+  }
+};
+function dictationSpeech(card){
+  const w = card.w;
+  if ([...w].length === 1) {
+    const ex = splitExamples(card).find(e => e.zh.includes(w) && e.zh !== w);
+    if (ex) return `${w}，${ex.zh}的${w}`;
+  }
+  return w;
+}
+
+/* ---------- scheduling: FSRS-4.5 (Free Spaced Repetition Scheduler) with its published default parameters ---------- */
+const W = [0.4872,1.4003,3.7145,13.8206,5.1618,1.2298,0.8975,0.031,1.6474,0.1367,1.0461,2.1072,0.0793,0.3246,1.587,0.2272,2.8755];
+const DECAY = -0.5, FACTOR = 19/81;
+const clampD = d => Math.min(10, Math.max(1, d));
+const initD = g => clampD(W[4] - (g-3)*W[5]);
+const retrievability = (t, s) => Math.pow(1 + FACTOR*t/s, DECAY);
+function nextIvl(s){
+  const r = S.meta.settings.retention || 0.9;
+  return Math.min(36500, Math.max(1, Math.round(s/FACTOR * (Math.pow(r, 1/DECAY) - 1))));
+}
+function migrate(st){
+  if (!st) return null;
+  if (st.s) return st;
+  if (!st.ivl) return null;            // older format, never graduated: start fresh
+  return {s:Math.max(1, st.ivl), d:5, last:(st.due||Date.now()) - st.ivl*DAY, reps:st.reps||1, lapses:st.lapses||0};
+}
+function schedule(prev, g, now=Date.now()){
+  const p = migrate(prev);
+  let s, d, lapses = p ? (p.lapses||0) : 0;
+  if (!p) { s = W[g-1]; d = initD(g); }
+  else {
+    const t = Math.max(0, (now - p.last)/DAY), R = retrievability(t, p.s);
+    d = clampD(W[7]*initD(3) + (1-W[7])*(p.d - W[6]*(g-3)));
+    if (g === 1) { s = Math.min(p.s, W[11]*Math.pow(d,-W[12])*(Math.pow(p.s+1,W[13])-1)*Math.exp(W[14]*(1-R))); lapses++; }
+    else s = p.s * (Math.exp(W[8])*(11-d)*Math.pow(p.s,-W[9])*(Math.exp(W[10]*(1-R))-1)*(g===2?W[15]:1)*(g===4?W[16]:1) + 1);
+  }
+  s = Math.max(0.1, s);
+  const ivl = nextIvl(s);
+  return {s, d, last:now, due:now + ivl*DAY, ivl, reps:(p ? p.reps||0 : 0) + 1, lapses};
+}
+
+/* ---------- review session ---------- */
+let sess = {queue:[], cur:null, flipped:false, check:null, isNew:{}, relearn:{}, phrase:null, hintShown:false};
+function ensureDaily(p){ if (!p.daily || p.daily.date !== todayKey()) p.daily = {date:todayKey(), new:{}}; }
+function buildSession(extraNew=0){
+  const deck = curDeck(), p = curProg(); if (!deck) return;
+  ensureDaily(p);
+  const now = Date.now(), due = [], fresh = [];
+  for (const c of deck.cards) {
+    const st = p.srs[c.id];
+    if (st && st.m) continue;
+    const s = st && st[S.mode];
+    if (s) { if (s.due <= now) due.push([s.due, c.id]); }
+    else fresh.push(c.id);
+  }
+  due.sort((a,b)=>a[0]-b[0]);
+  const used = p.daily.new[S.mode] || 0;
+  const left = Math.max(0, S.meta.settings.newPerDay + (p.daily.extra?.[S.mode]||0) - used);
+  const newIds = fresh.slice(0, left);
+  sess = {queue:[...due.map(d=>d[1]), ...newIds], cur:null, flipped:false, check:null, isNew:Object.fromEntries(newIds.map(i=>[i,true])), relearn:{}, phrase:null, hintShown:false};
+  nextCard(false);
+}
+function nextCard(doRender=true){
+  const id = sess.queue.shift();
+  sess.cur = id ? curDeck().cards.find(c => c.id === id) : null;
+  sess.flipped = false; sess.check = null; sess.hintShown = false; sess.phrase = null;
+  if (sess.cur && S.mode === "dictate" && S.meta.settings.dictType === "phrase") {
+    const exs = splitExamples(sess.cur);
+    sess.phrase = exs.length ? exs[Math.floor(Math.random()*exs.length)] : null;
+  }
+  if (doRender) { render(); autoPlay(); }
+}
+function autoPlay(){
+  if (!sess.cur || S.tab !== "review") return;
+  if (S.mode === "listen" && !sess.flipped) TTS.speak(sess.cur.w);
+  if (S.mode === "dictate" && !sess.check) TTS.speak(sess.phrase ? sess.phrase.zh : dictationSpeech(sess.cur));
+}
+function rate(r){
+  const c = sess.cur; if (!c) return;
+  if (S.mode !== "dictate" && !sess.flipped) return;
+  if (S.mode === "dictate" && !sess.check) return;
+  const p = curProg(); ensureDaily(p);
+  const st = p.srs[c.id] || {};
+  if (sess.relearn[c.id]) {
+    // already rescheduled today; Again keeps it in this session until you get it
+    if (r === 1) sess.queue.splice(Math.min(sess.queue.length, 4), 0, c.id); else delete sess.relearn[c.id];
+    return nextCard();
+  }
+  const ns = schedule(st[S.mode], r);
+  p.srs[c.id] = Object.assign({}, st, {[S.mode]: ns});
+  if (sess.isNew[c.id]) { p.daily.new[S.mode] = (p.daily.new[S.mode]||0) + 1; delete sess.isNew[c.id]; }
+  if (r === 1) { sess.relearn[c.id] = true; sess.queue.splice(Math.min(sess.queue.length, 4), 0, c.id); }
+  saveProg(S.meta.current);
+  nextCard();
+}
+function master(){
+  const c = sess.cur; if (!c) return;
+  const p = curProg();
+  p.srs[c.id] = Object.assign({}, p.srs[c.id]||{}, {m:true});
+  sess.queue = sess.queue.filter(i => i !== c.id);
+  saveProg(S.meta.current);
+  const deckId = S.meta.current;
+  toast(`“${c.w}” marked as mastered.`, "Undo", () => {
+    const pp = S.prog[deckId]; if (pp && pp.srs[c.id]) delete pp.srs[c.id].m; saveProg(deckId);
+    if (S.meta.current === deckId && S.tab === "review") { if (sess.cur) sess.queue.unshift(sess.cur.id); sess.queue.unshift(c.id); nextCard(); }
+  });
+  nextCard();
+}
+function flip(){ if (!sess.cur || S.mode === "dictate" || sess.flipped) return; sess.flipped = true; render(); TTS.speak(sess.cur.w); }
+
+/* LCS diff of two char arrays -> flags */
+function align(a, b){
+  const n=a.length, m=b.length, L=Array.from({length:n+1},()=>new Array(m+1).fill(0));
+  for (let i=n-1;i>=0;i--) for (let j=m-1;j>=0;j--) L[i][j] = a[i]===b[j] ? L[i+1][j+1]+1 : Math.max(L[i+1][j], L[i][j+1]);
+  const okA=new Array(n).fill(false), okB=new Array(m).fill(false);
+  let i=0,j=0; while(i<n&&j<m){ if(a[i]===b[j]){okA[i]=okB[j]=true;i++;j++;} else if(L[i+1][j]>=L[i][j+1]) i++; else j++; }
+  return {okA, okB};
+}
+function checkAnswer(input, target){
+  const a=[...normalize(input)], b=[...normalize(target)];
+  const {okA, okB} = align(a, b);
+  return {a, b, okA, okB, correct: a.length===b.length && okB.every(Boolean)};
+}
+function diffHTML(ch, size="sm"){
+  return `<div class="diff">
+    <div class="lbl">You wrote</div>
+    <div class="tzg-row">${ch.a.length ? ch.a.map((c,i)=>tzg(c, size+" "+(ch.okA[i]?"ok":"bad"))).join("") : '<span class="hint">(nothing)</span>'}</div>
+    ${ch.correct ? "" : `<div class="lbl">Answer</div><div class="tzg-row">${ch.b.map((c,i)=>tzg(c, size+" "+(ch.okB[i]?"ok":"miss"))).join("")}</div>`}
+  </div>`;
+}
+function submitDictation(){
+  const inp = $("#ans"); if (!inp || !sess.cur || sess.check) return;
+  const target = sess.phrase ? sess.phrase.zh : sess.cur.w;
+  sess.check = checkAnswer(inp.value, target);
+  render();
+  TTS.speak(target);
+}
+
+/* ---------- rendering ---------- */
+function renderDeckSel(){
+  const sel = $("#deckSel");
+  sel.innerHTML = S.meta.decks.map(d => `<option value="${d.id}" ${d.id===S.meta.current?"selected":""}>${esc(d.name)}</option>`).join("");
+}
+function render(){
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === S.tab)));
+  if (S.tab === "review") renderReview();
+  else if (S.tab === "quiz") renderQuiz();
+  else renderDecks();
+}
+function noticeHTML(){
+  if (!("speechSynthesis" in window)) return `<div class="notice">This browser can’t speak. Try Chrome, Edge or Safari for listening and dictation.</div>`;
+  if (TTS.ready && !TTS.voice) return `<div class="notice">No Chinese voice found on this device, so audio may sound wrong. Add Chinese (Mandarin) speech in your system’s language or accessibility settings, then reload.</div>`;
+  return "";
+}
+function renderNotice(){ const n = $("#notice"); if (n) n.innerHTML = noticeHTML(); }
+function previews(){
+  const st = (curProg().srs[sess.cur.id]||{})[S.mode];
+  const now = Date.now();
+  if (sess.relearn[sess.cur.id]) { const nx = st && st.ivl ? fmtIvl(st.ivl*DAY) : "1d"; return ["again soon", nx, nx, nx]; }
+  return [1,2,3,4].map(r => fmtIvl(schedule(st, r, now).due - now));
+}
+function rateHTML(suggest){
+  const pv = previews(), names = ["Again","Hard","Good","Easy"];
+  return `<div class="rate">${names.map((n,i)=>`<button type="button" class="r${i+1} ${suggest===i+1?"suggest":""}" data-rate="${i+1}">${n}<small>${pv[i]}</small><kbd>${i+1}</kbd></button>`).join("")}
+    <button type="button" class="mst" data-act="master" title="Never show this word again">Mastered<small>never again</small><kbd>M</kbd></button></div>`;
+}
+function backHTML(c, showWord=true){
+  const exs = splitExamples(c);
+  return `${showWord ? `<div class="tzg-row">${[...c.w].map(ch=>tzg(ch)).join("")}</div>` : ""}
+    <div class="py">${esc(c.p)}</div>
+    <div class="mean">${esc(c.m)}</div>
+    ${exs.length ? `<ul class="exs">${exs.map(e=>`<li><button type="button" class="icon-btn" data-say="${esc(e.zh)}" aria-label="Play ${esc(e.zh)}">${ICON_PLAY}</button><span class="zh">${esc(e.zh)}</span><small>${esc(e.en)}</small></li>`).join("")}</ul>` : ""}`;
+}
+function renderReview(){
+  const app = $("#app"), deck = curDeck(), p = curProg();
+  const dueN = sess.queue.filter(i => !sess.isNew[i]).length + (sess.cur && !sess.isNew[sess.cur.id] ? 1 : 0);
+  const newN = sess.queue.filter(i => sess.isNew[i]).length + (sess.cur && sess.isNew[sess.cur.id] ? 1 : 0);
+  const modeBtn = (m, label) => `<button type="button" data-mode="${m}" aria-pressed="${S.mode===m}">${label}</button>`;
+  let body = "";
+  const c = sess.cur;
+  if (!deck || !deck.cards.length) {
+    body = `<div class="card"><div class="empty"><h2>This deck is empty</h2><p>Import a CSV or Excel file in Decks to add words.</p><button class="btn primary" data-tab="decks">Go to Decks</button></div></div>`;
+  } else if (!c) {
+    let next = Infinity;
+    for (const cc of deck.cards) { const st = p.srs[cc.id]; if (st && !st.m && st[S.mode]) next = Math.min(next, st[S.mode].due); }
+    const remainingNew = deck.cards.filter(cc => !(p.srs[cc.id]&&(p.srs[cc.id].m||p.srs[cc.id][S.mode]))).length;
+    body = `<div class="card"><div class="empty">
+      <div class="tzg-row">${tzg("好","sm ok")}</div>
+      <h2>All caught up</h2>
+      <p>${isFinite(next) ? `Next review in ${fmtIvl(next - Date.now())}.` : "Nothing scheduled yet in this mode."} ${remainingNew ? `${remainingNew} new word${remainingNew>1?"s":""} left in this deck.` : ""}</p>
+      ${remainingNew ? `<button class="btn primary" data-act="morenew">Learn 10 more new words</button>` : ""}
+    </div></div>`;
+  } else if (S.mode === "read") {
+    body = `<div class="card enter"><span class="cardtag">${sess.isNew[c.id]?"New":"Review"}</span>
+      ${sess.flipped ? backHTML(c) : `<div class="tzg-row">${[...c.w].map(ch=>tzg(ch)).join("")}</div><p class="hint">Say it, recall the meaning, then flip.</p>`}
+    </div>${sess.flipped ? rateHTML() : `<div class="flip"><button class="btn primary" data-act="flip">Show answer (Space)</button></div>`}`;
+  } else if (S.mode === "listen") {
+    body = `<div class="card enter"><span class="cardtag">${sess.isNew[c.id]?"New":"Review"}</span>
+      ${sess.flipped ? backHTML(c) : `<button type="button" class="big-play" data-act="replay" aria-label="Play again">${ICON_PLAY}</button><div class="tzg-row">${[...c.w].map(()=>tzg("?","q")).join("")}</div><p class="hint">Listen, picture the character, then flip.</p>`}
+    </div>${sess.flipped ? rateHTML() : `<div class="flip"><button class="btn primary" data-act="flip">Show answer (Space)</button></div>`}`;
+  } else {
+    const target = sess.phrase ? sess.phrase.zh : c.w;
+    const n = [...normalize(target)].length;
+    if (!sess.check) {
+      body = `<div class="card enter"><span class="cardtag">${sess.isNew[c.id]?"New":"Review"}${sess.phrase?", phrase":""}</span>
+        <button type="button" class="big-play" data-act="replay" aria-label="Play again">${ICON_PLAY}</button>
+        <div class="tzg-row">${Array.from({length:n},()=>tzg("","xs")).join("")}</div>
+        <div class="answer"><input id="ans" lang="zh-CN" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type what you hear" aria-label="Your answer"><button class="btn primary" data-act="check">Check</button></div>
+        <div>${sess.hintShown ? `<span class="hint">${esc(sess.phrase ? sess.phrase.en : c.m)}</span>` : `<button class="linkish" data-act="hint">Show meaning hint</button>`}</div>
+      </div>`;
+    } else {
+      const ok = sess.check.correct;
+      body = `<div class="card enter"><span class="cardtag">${sess.isNew[c.id]?"New":"Review"}${sess.phrase?", phrase":""}</span>
+        <div class="verdict ${ok?"ok":"bad"}">${ok ? "Correct" : "Not quite"}</div>
+        ${diffHTML(sess.check)}
+        ${sess.phrase ? `<div class="mean"><span class="zh" style="font-size:22px">${esc(sess.phrase.zh)}</span> ${esc(sess.phrase.en)}</div><hr style="width:100%;max-width:440px;border:0;border-top:1px solid var(--line)">` : ""}
+        ${backHTML(c, false)}
+      </div>${rateHTML(ok ? 3 : 1)}`;
+    }
+  }
+  app.innerHTML = `<div id="notice">${noticeHTML()}</div>
+    <div class="modes">
+      <div class="seg" role="group" aria-label="Practice mode">${modeBtn("read","Flashcards")}${modeBtn("listen","Listening")}${modeBtn("dictate","Dictation")}</div>
+      ${S.mode==="dictate" ? `<div class="seg" role="group" aria-label="Dictation type"><button type="button" data-dt="word" aria-pressed="${S.meta.settings.dictType==="word"}">Words</button><button type="button" data-dt="phrase" aria-pressed="${S.meta.settings.dictType==="phrase"}">Phrases</button></div>` : ""}
+      <label class="speed">Speed <input type="range" min="0.5" max="1.2" step="0.1" value="${S.meta.settings.rate}" data-act="rate" aria-label="Speech speed"></label>
+      <div class="counts"><b>${dueN}</b> to review, <b>${newN}</b> new</div>
+    </div>${body}
+    <p class="keys">${S.mode==="dictate" ? "<kbd>Enter</kbd> check, then <kbd>Enter</kbd> accepts the highlighted rating. <kbd>Esc</kbd> leaves the box so you can use <kbd>1</kbd>–<kbd>4</kbd>, <kbd>M</kbd> and <kbd>R</kbd> replay." : "<kbd>Space</kbd> flip, <kbd>1</kbd>–<kbd>4</kbd> rate (<kbd>0</kbd> also means Again), <kbd>M</kbd> mastered, <kbd>R</kbd> replay audio."}</p>`;
+  const inp = $("#ans"); if (inp) setTimeout(() => inp.focus({preventScroll:true}), 30);
+}
+
+/* ---------- quiz ---------- */
+let Q = {phase:"setup", n:10, type:"word", how:"type", items:[], i:0, res:[], check:null, shown:false, hint:false};
+function shuffle(a){ for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+const quizTarget = it => it.phrase ? it.phrase.zh : it.card.w;
+function quizSpeak(slow){ const it = Q.items[Q.i]; if (!it) return; TTS.speak(it.phrase ? it.phrase.zh : dictationSpeech(it.card), slow ? 0.7 : 1); }
+function startQuiz(items){
+  const deck = curDeck(); if (!deck || !deck.cards.length) return;
+  if (!items) {
+    const pool = shuffle(deck.cards.slice());
+    const n = Q.n === "all" ? pool.length : Math.min(Q.n, pool.length);
+    items = pool.slice(0, n).map(card => {
+      let phrase = null;
+      if (Q.type === "phrase") { const ex = splitExamples(card); if (ex.length) phrase = ex[Math.floor(Math.random()*ex.length)]; }
+      return {card, phrase};
+    });
+  }
+  Q.items = shuffle(items.slice()); Q.i = 0; Q.res = []; Q.check = null; Q.shown = false; Q.hint = false; Q.phase = "run";
+  render(); quizSpeak();
+}
+function quizRecord(ok, input){
+  const it = Q.items[Q.i]; Q.res[Q.i] = {ok, input};
+  if (!ok) {
+    const p = curProg(), st = p.srs[it.card.id] || {};
+    if (!st.m) { p.srs[it.card.id] = Object.assign({}, st, {dictate: schedule(st.dictate, 1)}); saveProg(S.meta.current); }
+  }
+}
+function quizCheck(){
+  const inp = $("#qans"); if (!inp || Q.check) return;
+  Q.check = checkAnswer(inp.value, quizTarget(Q.items[Q.i]));
+  quizRecord(Q.check.correct, inp.value);
+  render(); TTS.speak(quizTarget(Q.items[Q.i]));
+}
+function quizSelf(ok){ if (!Q.shown || Q.res[Q.i]) return; quizRecord(ok, ""); quizNext(); }
+function quizReveal(){ if (Q.how !== "paper" || Q.shown) return; Q.shown = true; render(); TTS.speak(quizTarget(Q.items[Q.i])); }
+function quizNext(){
+  if (Q.i < Q.items.length - 1) { Q.i++; Q.check = null; Q.shown = false; Q.hint = false; render(); quizSpeak(); }
+  else { Q.phase = "done"; render(); }
+}
+function renderQuiz(){
+  const app = $("#app"), deck = curDeck();
+  if (!deck || !deck.cards.length) { app.innerHTML = `<div class="panel empty"><h2>This deck is empty</h2><p>Import words in Decks to start a quiz.</p><button class="btn primary" data-tab="decks">Go to Decks</button></div>`; return; }
+  const opt = (key, val, label) => `<button type="button" data-q="${key}:${val}" aria-pressed="${String(Q[key])===String(val)}">${label}</button>`;
+  let html = "";
+  if (Q.phase === "setup") {
+    html = `<div class="panel"><h2>Dictation quiz</h2>
+      <p class="hint" style="margin:4px 0 0">Words from “${esc(deck.name)}” are read aloud in random order. Write each one, then see your score. Words you miss go back into your Dictation reviews.</p>
+      <div class="qopts">
+        <div class="field"><label>How many</label><div class="seg">${opt("n",10,"10")}${opt("n",20,"20")}${opt("n","all","All "+deck.cards.length)}</div></div>
+        <div class="field"><label>Read out</label><div class="seg">${opt("type","word","Words")}${opt("type","phrase","Phrases")}</div></div>
+        <div class="field"><label>Answer by</label><div class="seg">${opt("how","type","Typing")}${opt("how","paper","Writing on paper")}</div></div>
+      </div>
+      <p class="hint">${Q.how === "paper" ? "Write each answer in your notebook, reveal it, then mark whether you got it right." : "Type each answer with your Chinese keyboard."}</p>
+      <button class="btn primary" data-act="qstart">Start quiz</button></div>`;
+  } else if (Q.phase === "run") {
+    const it = Q.items[Q.i], target = quizTarget(it), n = [...normalize(target)].length, N = Q.items.length;
+    const right = Q.res.filter(r => r && r.ok).length, answered = Q.res.filter(Boolean).length;
+    let inner = "";
+    if (Q.how === "type") {
+      inner = !Q.check
+        ? `<div class="tzg-row">${Array.from({length:n},()=>tzg("","xs")).join("")}</div>
+           <div class="answer"><input id="qans" lang="zh-CN" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type what you hear" aria-label="Your answer"><button class="btn primary" data-act="qcheck">Check</button></div>
+           <div>${Q.hint ? `<span class="hint">${esc(it.phrase ? it.phrase.en : it.card.m)}</span>` : `<button class="linkish" data-act="qhint">Show meaning hint</button>`}</div>`
+        : `<div class="verdict ${Q.check.correct?"ok":"bad"}">${Q.check.correct ? "Correct" : "Not quite"}</div>${diffHTML(Q.check)}
+           <div class="py" style="font-size:20px">${esc(it.card.p)}</div><div class="mean">${esc(it.phrase ? it.phrase.en : it.card.m)}</div>
+           <button class="btn primary" data-act="qnext">${Q.i < N-1 ? "Next word (Enter)" : "See results (Enter)"}</button>`;
+    } else {
+      inner = !Q.shown
+        ? `<div class="tzg-row">${Array.from({length:n},()=>tzg("","xs")).join("")}</div><p class="hint">Write it on paper, then check.</p>
+           <button class="btn primary" data-act="qreveal">Show answer (Space)</button>`
+        : `<div class="tzg-row">${[...normalize(target)].map(ch => tzg(ch, "sm")).join("")}</div>
+           <div class="py" style="font-size:20px">${esc(it.card.p)}</div><div class="mean">${esc(it.phrase ? it.phrase.en : it.card.m)}</div>
+           <div class="row"><button class="btn danger" data-act="qmiss">I missed it (1)</button><button class="btn primary" data-act="qgot">I got it (2)</button></div>`;
+    }
+    html = `<div class="row" style="justify-content:space-between"><b>Word ${Q.i+1} of ${N}</b><span class="hint">${answered ? `${right} of ${answered} right` : ""}</span><button class="linkish" data-act="qend">End quiz</button></div>
+      <div class="qbar"><span style="width:${(Q.i/N)*100}%"></span></div>
+      <div class="card enter" style="min-height:320px"><span class="cardtag">${it.phrase ? "Phrase" : "Word"}</span>
+        <div class="row" style="margin-top:10px"><button type="button" class="big-play" data-act="qplay" aria-label="Play again">${ICON_PLAY}</button><button class="btn" data-act="qslow">Slower</button></div>
+        ${inner}
+      </div>
+      <p class="keys">${Q.how === "type" ? "<kbd>Enter</kbd> check, then <kbd>Enter</kbd> for the next word. <kbd>Esc</kbd> then <kbd>R</kbd> replays." : "<kbd>R</kbd> replay, <kbd>Space</kbd> show answer, <kbd>1</kbd> missed, <kbd>2</kbd> got it."}</p>`;
+  } else {
+    const N = Q.items.length, right = Q.res.filter(r => r && r.ok).length, missed = Q.items.filter((_,i) => !(Q.res[i] && Q.res[i].ok));
+    const pct = N ? right / N : 0;
+    const msg = right === N ? "Perfect score" : pct >= 0.8 ? "Nicely done" : "Keep going";
+    html = `<div class="panel"><div class="empty" style="padding:10px 0 0"><div class="qscore">${right}<span> / ${N}</span></div><h2>${msg}</h2>
+      ${missed.length ? `<p>The ${missed.length} word${missed.length>1?"s":""} you missed ${missed.length>1?"are":"is"} now in your Dictation reviews.</p>` : ""}</div>
+      <ul class="qres">${Q.items.map((it,i) => { const r = Q.res[i] || {ok:false, input:""}; const t = quizTarget(it);
+        return `<li><div class="tzg-row">${[...normalize(t)].map(ch => tzg(ch, "xs " + (r.ok ? "ok" : "bad"))).join("")}</div>
+          <div class="info"><b>${esc(it.card.p)}</b> ${esc(it.phrase ? it.phrase.en : it.card.m)}${!r.ok && r.input ? `<div class="wrote">You wrote <span class="zh">${esc(r.input)}</span></div>` : ""}</div>
+          <button type="button" class="icon-btn" data-say="${esc(t)}" aria-label="Play ${esc(t)}">${ICON_PLAY}</button></li>`; }).join("")}</ul>
+      <div class="row">${missed.length ? `<button class="btn primary" data-act="qretry">Retry the ${missed.length} missed</button>` : ""}<button class="btn ${missed.length ? "" : "primary"}" data-act="qnew">New quiz</button><button class="btn" data-act="qsetup">Change settings</button></div></div>`;
+  }
+  app.innerHTML = `<div id="notice">${noticeHTML()}</div>${html}`;
+  const inp = $("#qans"); if (inp) setTimeout(() => inp.focus({preventScroll:true}), 30);
+}
+
+/* ---------- decks ---------- */
+let D = {pending:null, confirm:null};
+const ALIASES = {
+  w:["word","hanzi","character","characters","chinese","汉字","词语","生字","字","front","simplified"],
+  p:["pinyin","拼音","pronunciation"],
+  m:["translation_en","translation","meaning","english","definition","back","意思","释义"],
+  ex:["example","examples","例句","组词","sentence","phrases"],
+  exen:["example_en","example_translation","sentence_en","examples_en","example translation"]
+};
+function parseRows(rows){
+  rows = rows.filter(r => r && r.some(v => String(v??"").trim()));
+  if (!rows.length) return [];
+  const head = rows[0].map(v => String(v??"").trim().toLowerCase());
+  let idx = {}, start = 0;
+  for (const k in ALIASES) { const i = head.findIndex(h => ALIASES[k].includes(h)); if (i >= 0) idx[k] = i; }
+  if (idx.w !== undefined) start = 1; else idx = {w:0, p:1, m:2, ex:3, exen:4};
+  const seen = new Set(), out = [];
+  for (const r of rows.slice(start)) {
+    const g = k => idx[k] === undefined ? "" : String(r[idx[k]] ?? "").trim();
+    const w = g("w"); if (!w || seen.has(w)) continue; seen.add(w);
+    out.push({w, p:g("p"), m:g("m"), ex:g("ex"), exen:g("exen")});
+  }
+  return out;
+}
+async function readFile(file){
+  if (typeof XLSX === "undefined") throw new Error("The spreadsheet reader didn’t load. Check your connection and reload.");
+  const isText = /\.(csv|tsv|txt)$/i.test(file.name);
+  const wb = isText ? XLSX.read(await file.text(), {type:"string"}) : XLSX.read(await file.arrayBuffer(), {type:"array"});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  return parseRows(XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:""}));
+}
+function deckStats(id){
+  const d = S.decks[id], p = S.prog[id]||{srs:{}};
+  const n = d.cards.length, m = d.cards.filter(c => p.srs[c.id]?.m).length;
+  const seen = d.cards.filter(c => { const s = p.srs[c.id]; return s && (s.read||s.listen||s.dictate); }).length;
+  return {n, m, seen};
+}
+function renderDecks(){
+  const app = $("#app");
+  const decks = S.meta.decks.map(d => { const st = deckStats(d.id); const cur = d.id === S.meta.current;
+    return `<div class="dk ${cur?"cur":""}"><div class="grow"><div class="nm zh">${esc(d.name)}</div><div class="meta">${st.n} words, ${st.seen} studied, ${st.m} mastered</div></div>
+      ${cur ? `<span class="pill m">Studying</span>` : `<button class="btn" data-use="${d.id}">Study this deck</button>`}
+      <button class="btn" data-reset="${d.id}">${D.confirm==="r"+d.id?"Tap again to reset":"Reset progress"}</button>
+      ${S.meta.decks.length > 1 ? `<button class="btn danger" data-del="${d.id}">${D.confirm==="d"+d.id?"Tap again to delete":"Delete"}</button>` : ""}</div>`; }).join("");
+  const pend = D.pending ? `<div class="panel" style="margin-top:12px"><h2 style="font-size:19px">Found ${D.pending.cards.length} words</h2>
+      <p class="hint">${D.pending.cards.slice(0,6).map(c=>esc(c.w)).join("、")}${D.pending.cards.length>6?"…":""}</p>
+      <div class="field"><label for="dn">Deck name</label><input id="dn" value="${esc(D.pending.name)}"></div>
+      <div class="row"><button class="btn primary" data-act="dcreate">Create deck</button>
+      ${S.meta.decks.length ? `<button class="btn" data-act="dmerge">Add to “${esc(curDeck()?.name||"")}”</button>` : ""}
+      <button class="btn" data-act="dcancel">Cancel</button></div></div>` : "";
+  const deck = curDeck(), p = curProg();
+  const rows = deck ? deck.cards.map(c => { const st = p.srs[c.id]||{}; const lvl = ["read","listen","dictate"].map(k => st[k] ? (st[k].ivl>0 ? fmtIvl(st[k].ivl*DAY) : "1d") : "new");
+    return `<tr><td class="han">${esc(c.w)}</td><td>${esc(c.p)}</td><td>${esc(c.m)}</td><td>${st.m?'<span class="pill m">Mastered</span>':lvl.map((l,i)=>`<span class="pill" title="${["Flashcards","Listening","Dictation"][i]}">${["F","L","D"][i]} ${l}</span>`).join(" ")}</td>
+      <td><button class="linkish" data-tm="${c.id}">${st.m?"Unmaster":"Mark mastered"}</button></td></tr>`; }).join("") : "";
+  app.innerHTML = `<h3 style="margin-top:0">Your decks</h3><div class="decks">${decks}</div>
+    <h3>Import words</h3>
+    <div class="drop" id="drop"><b>Drop a CSV or Excel file here</b>
+      <p>Columns: <code>word</code> <code>pinyin</code> <code>translation_en</code> <code>example</code> <code>example_en</code>. Separate example phrases with 、 and their translations with commas.</p>
+      <label class="btn primary">Choose file<input type="file" id="dfile" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden></label></div>
+    ${pend}
+    <h3>Words in “${esc(deck?.name||"")}”</h3>
+    <p class="hint" style="margin:0">F, L and D show the next interval in Flashcards, Listening and Dictation.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Word</th><th>Pinyin</th><th>Meaning</th><th>Progress</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <h3>Daily limit</h3>
+    <label class="row hint">New words per mode each day <input type="number" min="1" max="200" value="${S.meta.settings.newPerDay}" data-act="newper" style="width:80px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--surface-2)"></label>
+    <h3>Memory target</h3>
+    <div class="seg" role="group" aria-label="Target recall rate">${[0.85,0.9,0.95].map(v=>`<button type="button" data-ret="${v}" aria-pressed="${S.meta.settings.retention===v}">${Math.round(v*100)}%</button>`).join("")}</div>
+    <p class="hint">How likely you should be to still remember a word when it comes back. 90% is the recommended default. Higher means more frequent reviews.</p>
+    <h3>Backup</h3>
+    <p class="hint">${Store.mode==="db" ? "Your decks and progress are saved to your Claude account and follow you to other devices." : "Your decks and progress are saved in this browser only."} Download a backup to move your progress to another copy of this app, or restore one here. Restoring replaces the decks and progress on this page.</p>
+    <div class="row"><button class="btn" data-act="bexport">Download backup</button><label class="btn">Restore from backup<input type="file" id="bfile" accept=".json,application/json" hidden></label></div>`;
+  const bf = $("#bfile");
+  bf.onchange = async () => {
+    const file = bf.files[0]; if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (data.app !== "tingxie" || !data.meta || !Array.isArray(data.meta.decks) || !data.meta.decks.length) throw new Error("bad");
+      S.meta = data.meta; S.meta.settings = Object.assign({newPerDay:15, rate:0.8, dictType:"word", retention:0.9}, data.meta.settings||{});
+      S.decks = {}; S.prog = {};
+      for (const d of S.meta.decks) { S.decks[d.id] = data.decks[d.id] || {name:d.name, cards:[], nextId:0}; S.prog[d.id] = (data.prog||{})[d.id] || {srs:{}, daily:{}}; saveDeck(d.id); saveProg(d.id); }
+      if (!S.decks[S.meta.current]) S.meta.current = S.meta.decks[0].id;
+      saveMeta(); renderDeckSel(); buildSession(); render();
+      toast(`Restored ${S.meta.decks.length} deck${S.meta.decks.length>1?"s":""}.`);
+    } catch (e) { toast("That file isn’t a 听写本 backup."); }
+  };
+  const drop = $("#drop"), fi = $("#dfile");
+  const handle = async file => { try { const cards = await readFile(file); if (!cards.length) return toast("No words found. Check that the first column holds the Chinese word."); D.pending = {cards, name:file.name.replace(/\.[^.]+$/,"").replace(/_/g," ")}; render(); } catch (e) { toast(e.message || "Couldn’t read that file."); } };
+  fi.onchange = () => fi.files[0] && handle(fi.files[0]);
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); e.dataTransfer.files[0] && handle(e.dataTransfer.files[0]); };
+}
+async function exportBackup(){
+  const json = JSON.stringify({app:"tingxie", version:2, exported:new Date().toISOString(), meta:S.meta, decks:S.decks, prog:S.prog});
+  const filename = `tingxie-backup-${todayKey()}.json`;
+  let dl = null;
+  try { if (window.claude && window.claude.use) dl = await window.claude.use("downloads"); } catch (e) {}
+  if (dl) { try { await dl.save({filename, data:json}); } catch (e) { if (e && e.code !== "cancelled") toast("Couldn’t save the backup."); } return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([json], {type:"application/json"})); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function addCards(deck, cards){
+  const have = new Set(deck.cards.map(c=>c.w)); let added = 0;
+  for (const c of cards) if (!have.has(c.w)) { deck.cards.push(Object.assign({id:"c"+(deck.nextId++)}, c)); added++; }
+  return added;
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", e => {
+  const t = e.target.closest("button, [data-act]"); if (!t) return;
+  const ds = t.dataset;
+  if (ds.tab) { S.tab = ds.tab; D.confirm = null; window.speechSynthesis?.cancel?.(); render(); if (S.tab==="review") autoPlay(); return; }
+  if (ds.mode) { S.mode = ds.mode; buildSession(); render(); autoPlay(); return; }
+  if (ds.dt) { S.meta.settings.dictType = ds.dt; saveMeta(); if (sess.cur) sess.queue.unshift(sess.cur.id); nextCard(); return; }
+  if (ds.rate && t.tagName === "BUTTON") return rate(+ds.rate);
+  if (ds.say) return TTS.speak(ds.say);
+  if (ds.q) { const [k, v] = ds.q.split(":"); Q[k] = (k === "n" && v !== "all") ? +v : v; return render(); }
+  if (ds.ret) { S.meta.settings.retention = +ds.ret; saveMeta(); return render(); }
+  if (ds.use) { S.meta.current = ds.use; saveMeta(); renderDeckSel(); buildSession(); return render(); }
+  if (ds.tm) { const p = curProg(); const st = p.srs[ds.tm] ||= {}; if (st.m) delete st.m; else st.m = true; saveProg(S.meta.current); buildSession(); return render(); }
+  if (ds.reset) {
+    if (D.confirm !== "r"+ds.reset) { D.confirm = "r"+ds.reset; return render(); }
+    S.prog[ds.reset] = {srs:{}, daily:{}}; saveProg(ds.reset); D.confirm = null; buildSession(); toast("Progress reset."); return render();
+  }
+  if (ds.del) {
+    if (D.confirm !== "d"+ds.del) { D.confirm = "d"+ds.del; return render(); }
+    S.meta.decks = S.meta.decks.filter(d => d.id !== ds.del); delete S.decks[ds.del]; delete S.prog[ds.del];
+    Store.remove("deck-"+ds.del); Store.remove("prog-"+ds.del);
+    if (S.meta.current === ds.del) S.meta.current = S.meta.decks[0].id;
+    saveMeta(); renderDeckSel(); D.confirm = null; buildSession(); return render();
+  }
+  switch (ds.act) {
+    case "flip": return flip();
+    case "master": return master();
+    case "replay": return autoPlay();
+    case "check": return submitDictation();
+    case "hint": sess.hintShown = true; return render();
+    case "morenew": { const p = curProg(); ensureDaily(p); p.daily.extra = p.daily.extra||{}; p.daily.extra[S.mode] = (p.daily.extra[S.mode]||0) + 10; saveProg(S.meta.current); buildSession(); render(); return autoPlay(); }
+    case "qstart": case "qnew": return startQuiz();
+    case "qcheck": return quizCheck();
+    case "qnext": return quizNext();
+    case "qreveal": return quizReveal();
+    case "qgot": return quizSelf(true);
+    case "qmiss": return quizSelf(false);
+    case "qplay": return quizSpeak();
+    case "qslow": return quizSpeak(true);
+    case "qhint": Q.hint = true; return render();
+    case "qend": { const done = Q.res.length; if (!done) { Q.phase = "setup"; return render(); } Q.items = Q.items.slice(0, done); Q.phase = "done"; return render(); }
+    case "qretry": { const missed = Q.items.filter((_,i) => !(Q.res[i] && Q.res[i].ok)); return startQuiz(missed); }
+    case "qsetup": Q.phase = "setup"; return render();
+    case "dcancel": D.pending = null; return render();
+    case "bexport": return exportBackup();
+    case "dcreate": {
+      const id = "d"+uid(), name = ($("#dn").value.trim() || D.pending.name);
+      const deck = {name, cards:[], nextId:0}; addCards(deck, D.pending.cards);
+      S.decks[id] = deck; S.prog[id] = {srs:{}, daily:{}}; S.meta.decks.push({id, name}); S.meta.current = id;
+      saveDeck(id); saveProg(id); saveMeta(); renderDeckSel(); D.pending = null; buildSession(); toast(`Created “${name}” with ${deck.cards.length} words.`); return render();
+    }
+    case "dmerge": {
+      const n = addCards(curDeck(), D.pending.cards); saveDeck(S.meta.current); D.pending = null; buildSession();
+      toast(`Added ${n} new word${n===1?"":"s"}.`); return render();
+    }
+  }
+});
+document.addEventListener("input", e => {
+  const ds = e.target.dataset;
+  if (ds.act === "rate") { S.meta.settings.rate = +e.target.value; saveMeta(); }
+  if (ds.act === "newper") { const v = Math.max(1, Math.min(200, +e.target.value || 15)); S.meta.settings.newPerDay = v; saveMeta(); buildSession(); }
+});
+$("#deckSel").addEventListener("change", e => { Q.phase = "setup"; S.meta.current = e.target.value; saveMeta(); buildSession(); render(); if (S.tab==="review") autoPlay(); });
+document.addEventListener("keydown", e => {
+  if (e.isComposing || e.keyCode === 229) return;
+  const inInput = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+  if (S.tab === "review") {
+    if (e.target.id === "ans") {
+      if (e.key === "Enter") { e.preventDefault(); submitDictation(); }
+      else if (e.key === "Escape") e.target.blur();
+      return;
+    }
+    if (inInput) return;
+    if (S.mode === "dictate" && sess.check && e.key === "Enter") { e.preventDefault(); return rate(sess.check.correct ? 3 : 1); }
+    if (e.key === " ") { e.preventDefault(); return flip(); }
+    if (e.key === "0") return rate(1);
+    if (/^[1-4]$/.test(e.key)) return rate(+e.key);
+    if (e.key === "m" || e.key === "M") return master();
+    if (e.key === "r" || e.key === "R") return autoPlay();
+  } else if (S.tab === "quiz" && Q.phase === "run") {
+    if (e.target.id === "qans") {
+      if (e.key === "Enter") { e.preventDefault(); quizCheck(); }
+      else if (e.key === "Escape") e.target.blur();
+      return;
+    }
+    if (inInput) return;
+    if (Q.how === "type" && Q.check && e.key === "Enter") { e.preventDefault(); return quizNext(); }
+    if (Q.how === "paper") {
+      if (e.key === " ") { e.preventDefault(); return quizReveal(); }
+      if (e.key === "1") return quizSelf(false);
+      if (e.key === "2") return quizSelf(true);
+    }
+    if (e.key === "r" || e.key === "R") quizSpeak();
+  }
+});
+TTS.init();
+boot();
+</script>
+</body>
+</html>
