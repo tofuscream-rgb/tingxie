@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5.0/dist/hanzi-writer.min.js"></script>
 <style>
 :root{
   --bg:#EEF3F1; --surface:#FFFFFF; --surface-2:#F5F8F7; --ink:#1B2422; --muted:#5E6E6A; --line:#D3DEDA;
@@ -180,6 +181,14 @@ h3{margin:22px 0 10px;font-size:18px}
 .sessbar .grow{flex:1}
 .setup h2{margin:0 0 6px}
 .setup .field{margin:12px 0 0}
+/* stroke order panel */
+.stk{position:fixed;left:0;right:0;bottom:0;z-index:18;background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(0,0,0,.18);padding:14px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:80vh;overflow:auto}
+.stk-in{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:12px;align-items:center}
+.stk .tzg{background:var(--surface)}
+.stk .hw{position:relative;width:100%;height:100%;touch-action:none}
+.stk .hw svg{position:static;color:inherit;pointer-events:auto}
+.stk-status{font-size:14px;color:var(--muted);text-align:center;min-height:1.5em}
+.btn.sm{padding:5px 11px;font-size:13px}
 /* reading */
 .rbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:12px}
 .tog{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer}
@@ -236,6 +245,7 @@ main.has-sheet{padding-bottom:48vh}
   </nav>
 </div></header>
 <main id="app"><p class="hint">Loading your decks…</p></main>
+<div id="strokes" class="stk hidden" role="dialog" aria-label="Stroke order"></div>
 <div id="toast" class="toast hidden" role="status"></div>
 
 <script>
@@ -616,7 +626,7 @@ function rateHTML(suggest){
 function backHTML(c, showWord=true){
   const exs = splitExamples(c);
   return `${showWord ? `<div class="tzg-row">${[...c.w].map(ch=>tzg(ch)).join("")}</div>` : ""}
-    <div class="py">${esc(c.p)}</div>
+    <div class="row" style="justify-content:center"><span class="py">${esc(c.p)}</span><button type="button" class="btn sm" data-act="strokes" data-w="${esc(c.w)}">笔顺 Stroke order</button></div>
     <div class="mean">${esc(c.m)}</div>
     ${exs.length ? `<ul class="exs">${exs.map(e=>`<li><button type="button" class="icon-btn" data-say="${esc(e.zh)}" aria-label="Play ${esc(e.zh)}">${ICON_PLAY}</button><span class="zh">${esc(e.zh)}</span><small>${esc(e.en)}</small></li>`).join("")}</ul>` : ""}`;
 }
@@ -812,6 +822,75 @@ function renderQuiz(){
   const inp = $("#qans"); if (inp) setTimeout(() => inp.focus({preventScroll:true}), 30);
 }
 
+/* ---------- stroke order (笔顺) ----------
+   Uses Hanzi Writer (MIT licence). Stroke data for each character is downloaded from
+   jsDelivr the first time it's shown, so this needs an internet connection. The panel
+   lives outside #app so re-rendering the page doesn't interrupt an animation. */
+const Strokes = {
+  word: null, writers: [], run: 0,
+  el(){ return $("#strokes"); },
+  status(t){ const s = $("#stk-status"); if (s) s.textContent = t; },
+  open(word){
+    const chars = [...normalize(word)];
+    if (!chars.length) return;
+    this.word = word; this.writers = []; this.run++;
+    const el = this.el();
+    el.innerHTML = `<div class="stk-in">
+      <div class="row" style="width:100%"><b class="han" style="font-size:22px">${esc(word)}</b><span class="hint">笔顺 stroke order</span><button class="linkish" data-act="skclose" style="margin-left:auto">Close</button></div>
+      <div class="tzg-row">${chars.map((_, i) => `<div class="tzg">${GRID}<div class="hw" id="hw${i}"></div></div>`).join("")}</div>
+      <div class="stk-status" id="stk-status">Loading strokes…</div>
+      <div class="row" style="justify-content:center"><button class="btn primary" data-act="skplay">Play again</button><button class="btn" data-act="skquiz">Write it yourself</button></div>
+    </div>`;
+    el.classList.remove("hidden");
+    if (typeof HanziWriter === "undefined") { this.status("Stroke order couldn’t load. It needs an internet connection."); return; }
+    const css = getComputedStyle(document.documentElement), col = v => css.getPropertyValue(v).trim();
+    const run = this.run; let failed = false, loaded = 0;
+    chars.forEach((ch, i) => {
+      const box = $("#hw" + i), size = box.clientWidth || 150;
+      try {
+        this.writers[i] = HanziWriter.create(box, ch, {
+          width: size, height: size, padding: Math.round(size * 0.06),
+          showOutline: true, showCharacter: false,
+          strokeColor: col("--ink") || "#1B2422", outlineColor: col("--line") || "#D3DEDA",
+          highlightColor: col("--jade") || "#22705F", drawingColor: col("--jade") || "#22705F",
+          strokeAnimationSpeed: 1, delayBetweenStrokes: 220, showHintAfterMisses: 2,
+          onLoadCharDataSuccess: () => { if (run === this.run && ++loaded === chars.length && !failed) { this.status(""); this.play(); } },
+          onLoadCharDataError: () => { if (run !== this.run) return; failed = true; this.status(`No stroke data for “${ch}”, or no internet connection.`); }
+        });
+      } catch (e) { failed = true; this.status("Stroke order isn’t available here."); }
+    });
+  },
+  play(){
+    const ws = this.writers.filter(Boolean); if (!ws.length) return;
+    const run = ++this.run;
+    ws.forEach(w => { try { w.cancelQuiz(); w.hideCharacter(); } catch (e) {} });
+    this.status("Watch the strokes…");
+    const step = i => {
+      if (run !== this.run) return;
+      if (i >= ws.length) return this.status("Tap Play again to replay, or try writing it yourself.");
+      ws[i].animateCharacter({ onComplete: () => setTimeout(() => step(i + 1), 300) });
+    };
+    step(0);
+  },
+  quiz(){
+    const ws = this.writers.filter(Boolean); if (!ws.length) return;
+    const run = ++this.run; let mistakes = 0;
+    ws.forEach(w => { try { w.cancelQuiz(); w.hideCharacter(); } catch (e) {} });
+    const step = i => {
+      if (run !== this.run) return;
+      if (i >= ws.length) return this.status(mistakes ? `Done, with ${mistakes} stroke mistake${mistakes === 1 ? "" : "s"}. Try again or play the animation.` : "Perfect! Every stroke in the right order.");
+      this.status(`Draw each stroke in order in box ${i + 1} of ${ws.length}. A hint appears after 2 misses.`);
+      ws[i].quiz({ onComplete: s => { mistakes += (s && s.totalMistakes) || 0; step(i + 1); } });
+    };
+    step(0);
+  },
+  close(){
+    this.run++; this.writers.forEach(w => { try { w.cancelQuiz(); } catch (e) {} });
+    this.writers = []; this.word = null;
+    const el = this.el(); el.classList.add("hidden"); el.innerHTML = "";
+  }
+};
+
 /* ---------- reading ---------- */
 let R = {lesson:null, sel:null};
 const curLesson = () => ((curDeck() && curDeck().lessons) || []).find(l => l.id === R.lesson);
@@ -826,7 +905,7 @@ function sheetHTML(){
   return `<div class="sheet" role="dialog" aria-label="Word details"><div class="sheet-in">
     <div class="tzg-row">${[...s.w].map(ch => tzg(ch, "sm")).join("")}</div>
     <div class="sgrow">
-      <div class="row"><span class="py" style="font-size:22px">${esc(s.p)}</span><button class="icon-btn" data-say="${esc(s.w)}" aria-label="Play ${esc(s.w)}">${ICON_PLAY}</button><button class="linkish" data-act="rclose" style="margin-left:auto">Close</button></div>
+      <div class="row"><span class="py" style="font-size:22px">${esc(s.p)}</span><button class="icon-btn" data-say="${esc(s.w)}" aria-label="Play ${esc(s.w)}">${ICON_PLAY}</button><button type="button" class="btn sm" data-act="strokes" data-w="${esc(s.w)}">笔顺 Stroke order</button><button class="linkish" data-act="rclose" style="margin-left:auto">Close</button></div>
       ${s.m ? `<div style="font-size:18px">${esc(s.m)}</div>` : ""}
       ${cards.map(c => { const st = p.srs[c.id] || {}; const status = st.m ? "Mastered" : (st.read || st.listen || st.dictate) ? "Studying" : "Not studied yet";
         return `<div class="dcard"><span class="han" style="font-size:26px">${esc(c.w)}</span> <b style="color:var(--jade)">${esc(c.p)}</b> ${esc(c.m)} <span class="pill ${st.m?"m":""}">${status}</span>${c.ex ? `<div class="han" style="font-size:19px;margin-top:2px">${esc(c.ex)} <span class="hint" style="font-family:Figtree,sans-serif;font-size:13px">${esc(c.exen)}</span></div>` : ""}</div>`; }).join("")}
@@ -1044,6 +1123,10 @@ document.addEventListener("click", e => {
     case "qretry": { const missed = Q.items.filter((_,i) => !(Q.res[i] && Q.res[i].ok)); return startQuiz(missed); }
     case "qsetup": Q.phase = "setup"; return render();
     case "rclose": R.sel = null; return render();
+    case "strokes": return Strokes.open(ds.w);
+    case "skclose": return Strokes.close();
+    case "skplay": return Strokes.play();
+    case "skquiz": return Strokes.quiz();
     case "rall": { const L = curLesson(); return L && TTS.speakAll(L.passages.flatMap(p => [p.title, ...(p.author ? [(p.era||"") + p.author] : []), ...p.paras.map(paraText)])); }
     case "dcancel": D.pending = null; return render();
     case "bexport": return exportBackup();
@@ -1076,6 +1159,8 @@ document.addEventListener("keydown", e => {
   if (e.isComposing || e.keyCode === 229) return;
   const inInput = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
   if (e.target.dataset && e.target.dataset.tk && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); return e.target.click(); }
+  if (e.key === "Escape" && Strokes.word) { e.preventDefault(); return Strokes.close(); }
+  if (Strokes.word && !inInput) return;   // keep review shortcuts from firing behind the panel
   if (S.tab === "reading" && e.key === "Escape" && R.sel) { R.sel = null; return render(); }
   if (S.tab === "review") {
     if (e.target.id === "ans") {
