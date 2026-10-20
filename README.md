@@ -6,11 +6,12 @@ It runs entirely in your browser as a single HTML file, with no account, no serv
 
 ## Features
 
-**Review** has three practice modes, each with its own review schedule:
+**Review** has two practice modes, each with its own review schedule:
 
 - **Flashcards:** See the character in a 田字格 grid, recall the pinyin and meaning, then flip to check.
-- **Listening:** Hear the word first, picture the character, then flip.
 - **Dictation:** Hear the word and type it. Single characters are read the way a teacher would in class (诗，古诗的诗) so sound-alike characters can be told apart. Each character is marked right or wrong. Switch to **Phrases** to be dictated the example phrases instead.
+
+**笔顺 Stroke order** animates how to write the word, stroke by stroke. Open it from the back of a flashcard, or after you check a dictation answer (in Phrases, it shows the whole phrase). Choose **Write it yourself** to trace each stroke in order: wrong strokes are rejected, and a hint appears after 2 misses. Stroke order needs an internet connection.
 
 Rate each card **Again**, **Hard**, **Good**, or **Easy**, or mark it **Mastered** so it never comes back.
 
@@ -127,4 +128,5 @@ The whole app is one file, `index.html`.
 
 - Scheduling algorithm: [FSRS](https://github.com/open-spaced-repetition) by the open-spaced-repetition project.
 - Spreadsheet import: [SheetJS](https://sheetjs.com/).
+- Stroke order: [Hanzi Writer](https://hanziwriter.org/), with stroke data from [Make Me a Hanzi](https://github.com/skishore/makemeahanzi).
 - Fonts: Figtree and Noto Serif SC from Google Fonts.

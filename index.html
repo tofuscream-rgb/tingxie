@@ -79,7 +79,6 @@ main{max-width:880px;margin:0 auto;padding:18px 16px 40px}
 .tzg.sm .ch{font-size:44px}
 .tzg.xs{width:46px;height:46px;border-width:1.5px}
 .tzg.xs .ch{font-size:32px}
-.tzg.q .ch{color:var(--muted);font-family:Figtree,sans-serif;font-size:56px;font-weight:300}
 .tzg.ok{background:var(--ok-bg)} .tzg.ok .ch{color:var(--ok)}
 .tzg.bad{background:var(--bad-bg)} .tzg.bad .ch{color:var(--bad)}
 .tzg.miss{background:var(--miss-bg)} .tzg.miss .ch{color:var(--miss)}
@@ -336,7 +335,7 @@ const DEFAULTS = {newPerDay:15, rate:0.8, dictType:"word", retention:0.9, sessKi
 const S = {
   meta: null,           // {decks:[{id,name}], current, settings}
   decks: {},            // id -> {name, cards, nextId}
-  prog: {},             // id -> {srs:{cid:{read,listen,dictate,m}}, daily:{date,new:{}}}
+  prog: {},             // id -> {srs:{cid:{read,dictate,m}}, daily:{date,new:{}}}
   tab: "review",
   mode: "read",
 };
@@ -451,7 +450,7 @@ function schedule(prev, g, now=Date.now()){
               Ratings update the FSRS schedule.
    "practice" Study all: every non-mastered word in random order. Ratings never touch the schedule.
 */
-const MODE_NAMES = {read:"Flashcards", listen:"Listening", dictate:"Dictation"};
+const MODE_NAMES = {read:"Flashcards", dictate:"Dictation"};
 const practiceRounds = {};                                     // "deckId:mode" -> Set of ids practised this round
 const roundSet = () => (practiceRounds[S.meta.current + ":" + S.mode] ||= new Set());
 const blankSession = () => ({phase:"setup", kind:null, queue:[], total:0, finished:new Set(), again:0,
@@ -518,7 +517,6 @@ function nextCard(doRender=true){
 }
 function autoPlay(){
   if (!sess.cur || sess.phase !== "run" || S.tab !== "review") return;
-  if (S.mode === "listen" && !sess.flipped) TTS.speak(sess.cur.w);
   if (S.mode === "dictate" && !sess.check) TTS.speak(sess.phrase ? sess.phrase.zh : dictationSpeech(sess.cur));
 }
 function requeue(id){ sess.again++; sess.queue.splice(Math.min(sess.queue.length, 4), 0, id); }
@@ -602,7 +600,7 @@ function render(){
   else renderDecks();
 }
 function noticeHTML(){
-  if (!("speechSynthesis" in window)) return `<div class="notice">This browser can’t speak. Try Chrome, Edge or Safari for listening and dictation.</div>`;
+  if (!("speechSynthesis" in window)) return `<div class="notice">This browser can’t speak. Try Chrome, Edge or Safari for audio and dictation.</div>`;
   if (TTS.ready && !TTS.voice) return `<div class="notice">No Chinese voice found on this device, so audio may sound wrong. Add Chinese (Mandarin) speech in your system’s language or accessibility settings, then reload.</div>`;
   return "";
 }
@@ -623,10 +621,10 @@ function rateHTML(suggest){
   const pv = previews(), names = ["Again","Hard","Good","Easy"];
   return `<div class="rate">${names.map((n,i)=>`<button type="button" class="r${i+1} ${suggest===i+1?"suggest":""}" data-rate="${i+1}">${n}<small>${pv[i]}</small><kbd>${i+1}</kbd></button>`).join("")}${mst}</div>`;
 }
-function backHTML(c, showWord=true){
+function backHTML(c, showWord=true, strokeBtn=true){
   const exs = splitExamples(c);
   return `${showWord ? `<div class="tzg-row">${[...c.w].map(ch=>tzg(ch)).join("")}</div>` : ""}
-    <div class="row" style="justify-content:center"><span class="py">${esc(c.p)}</span><button type="button" class="btn sm" data-act="strokes" data-w="${esc(c.w)}">笔顺 Stroke order</button></div>
+    <div class="row" style="justify-content:center"><span class="py">${esc(c.p)}</span>${strokeBtn ? `<button type="button" class="btn sm" data-act="strokes" data-w="${esc(c.w)}">笔顺 Stroke order</button>` : ""}</div>
     <div class="mean">${esc(c.m)}</div>
     ${exs.length ? `<ul class="exs">${exs.map(e=>`<li><button type="button" class="icon-btn" data-say="${esc(e.zh)}" aria-label="Play ${esc(e.zh)}">${ICON_PLAY}</button><span class="zh">${esc(e.zh)}</span><small>${esc(e.en)}</small></li>`).join("")}</ul>` : ""}`;
 }
@@ -634,7 +632,7 @@ function statsHTML(){
   const st = modeStats();
   const tile = (n, label, cls="") => `<div class="stat ${cls}"><b>${n}</b><span>${label}</span></div>`;
   return `<div class="stats">${tile(st.total,"Total words")}${tile(st.fresh.length,"New (unseen)")}${tile(st.due.length,"Due now", st.due.length ? "due" : "")}${tile(st.reviewed,"Reviewed, not due")}${tile(st.mastered,"Mastered")}</div>
-    <p class="hint statnote">Counts for ${MODE_NAMES[S.mode]}. Flashcards, Listening and Dictation each keep their own schedule.</p>`;
+    <p class="hint statnote">Counts for ${MODE_NAMES[S.mode]}. Flashcards and Dictation each keep their own schedule.</p>`;
 }
 function setupHTML(){
   const set = S.meta.settings, kind = set.sessKind, plan = plannedSession(kind), st = modeStats(), p = curProg(); ensureDaily(p);
@@ -685,9 +683,6 @@ function cardHTML(){
   if (S.mode === "read") return `<div class="card enter"><span class="cardtag">${tag}</span>
       ${sess.flipped ? backHTML(c) : `<div class="tzg-row">${[...c.w].map(ch=>tzg(ch)).join("")}</div><p class="hint">Say it, recall the meaning, then flip.</p>`}
     </div>${sess.flipped ? rateHTML() : `<div class="flip"><button class="btn primary" data-act="flip">Show answer (Space)</button></div>`}`;
-  if (S.mode === "listen") return `<div class="card enter"><span class="cardtag">${tag}</span>
-      ${sess.flipped ? backHTML(c) : `<button type="button" class="big-play" data-act="replay" aria-label="Play again">${ICON_PLAY}</button><div class="tzg-row">${[...c.w].map(()=>tzg("?","q")).join("")}</div><p class="hint">Listen, picture the character, then flip.</p>`}
-    </div>${sess.flipped ? rateHTML() : `<div class="flip"><button class="btn primary" data-act="flip">Show answer (Space)</button></div>`}`;
   const target = sess.phrase ? sess.phrase.zh : c.w, n = [...normalize(target)].length;
   if (!sess.check) return `<div class="card enter"><span class="cardtag">${tag}${sess.phrase?", phrase":""}</span>
       <button type="button" class="big-play" data-act="replay" aria-label="Play again">${ICON_PLAY}</button>
@@ -699,8 +694,9 @@ function cardHTML(){
   return `<div class="card enter"><span class="cardtag">${tag}${sess.phrase?", phrase":""}</span>
       <div class="verdict ${ok?"ok":"bad"}">${ok ? "Correct" : "Not quite"}</div>
       ${diffHTML(sess.check)}
+      <button type="button" class="btn" data-act="strokes" data-w="${esc(target)}">笔顺 Stroke order</button>
       ${sess.phrase ? `<div class="mean"><span class="zh" style="font-size:22px">${esc(sess.phrase.zh)}</span> ${esc(sess.phrase.en)}</div><hr style="width:100%;max-width:440px;border:0;border-top:1px solid var(--line)">` : ""}
-      ${backHTML(c, false)}
+      ${backHTML(c, false, false)}
     </div>${rateHTML(ok ? 3 : 1)}`;
 }
 function renderReview(){
@@ -717,7 +713,7 @@ function renderReview(){
     <div class="qbar"><span style="width:${sess.total ? sess.finished.size/sess.total*100 : 0}%"></span></div>${cardHTML()}`;
   app.innerHTML = `<div id="notice">${noticeHTML()}</div>
     <div class="modes">
-      <div class="seg" role="group" aria-label="Practice mode">${modeBtn("read","Flashcards")}${modeBtn("listen","Listening")}${modeBtn("dictate","Dictation")}</div>
+      <div class="seg" role="group" aria-label="Practice mode">${modeBtn("read","Flashcards")}${modeBtn("dictate","Dictation")}</div>
       ${S.mode==="dictate" ? `<div class="seg" role="group" aria-label="Dictation type"><button type="button" data-dt="word" aria-pressed="${S.meta.settings.dictType==="word"}">Words</button><button type="button" data-dt="phrase" aria-pressed="${S.meta.settings.dictType==="phrase"}">Phrases</button></div>` : ""}
       <label class="speed">Speed <input type="range" min="0.5" max="1.2" step="0.1" value="${S.meta.settings.rate}" data-act="rate" aria-label="Speech speed"></label>
     </div>
@@ -907,7 +903,7 @@ function sheetHTML(){
     <div class="sgrow">
       <div class="row"><span class="py" style="font-size:22px">${esc(s.p)}</span><button class="icon-btn" data-say="${esc(s.w)}" aria-label="Play ${esc(s.w)}">${ICON_PLAY}</button><button type="button" class="btn sm" data-act="strokes" data-w="${esc(s.w)}">笔顺 Stroke order</button><button class="linkish" data-act="rclose" style="margin-left:auto">Close</button></div>
       ${s.m ? `<div style="font-size:18px">${esc(s.m)}</div>` : ""}
-      ${cards.map(c => { const st = p.srs[c.id] || {}; const status = st.m ? "Mastered" : (st.read || st.listen || st.dictate) ? "Studying" : "Not studied yet";
+      ${cards.map(c => { const st = p.srs[c.id] || {}; const status = st.m ? "Mastered" : (st.read || st.dictate) ? "Studying" : "Not studied yet";
         return `<div class="dcard"><span class="han" style="font-size:26px">${esc(c.w)}</span> <b style="color:var(--jade)">${esc(c.p)}</b> ${esc(c.m)} <span class="pill ${st.m?"m":""}">${status}</span>${c.ex ? `<div class="han" style="font-size:19px;margin-top:2px">${esc(c.ex)} <span class="hint" style="font-family:Figtree,sans-serif;font-size:13px">${esc(c.exen)}</span></div>` : ""}</div>`; }).join("")}
     </div></div></div>`;
 }
@@ -983,7 +979,7 @@ async function readFile(file){
 function deckStats(id){
   const d = S.decks[id], p = S.prog[id]||{srs:{}};
   const n = d.cards.length, m = d.cards.filter(c => p.srs[c.id]?.m).length;
-  const seen = d.cards.filter(c => { const s = p.srs[c.id]; return s && (s.read||s.listen||s.dictate); }).length;
+  const seen = d.cards.filter(c => { const s = p.srs[c.id]; return s && (s.read||s.dictate); }).length;
   return {n, m, seen};
 }
 function renderDecks(){
@@ -1001,8 +997,8 @@ function renderDecks(){
       ${tgt ? `<button class="btn" data-act="dmerge" data-target="${tgt.id}">Add to “${esc(tgt.name)}”</button>` : ""}
       <button class="btn" data-act="dcancel">Cancel</button></div></div>` : "";
   const deck = curDeck(), p = curProg();
-  const rows = deck ? deck.cards.map(c => { const st = p.srs[c.id]||{}; const lvl = ["read","listen","dictate"].map(k => st[k] ? (st[k].ivl>0 ? fmtIvl(st[k].ivl*DAY) : "1d") : "new");
-    return `<tr><td class="han">${esc(c.w)}</td><td>${esc(c.p)}</td><td>${esc(c.m)}</td><td>${st.m?'<span class="pill m">Mastered</span>':lvl.map((l,i)=>`<span class="pill" title="${["Flashcards","Listening","Dictation"][i]}">${["F","L","D"][i]} ${l}</span>`).join(" ")}</td>
+  const rows = deck ? deck.cards.map(c => { const st = p.srs[c.id]||{}; const lvl = ["read","dictate"].map(k => st[k] ? (st[k].ivl>0 ? fmtIvl(st[k].ivl*DAY) : "1d") : "new");
+    return `<tr><td class="han">${esc(c.w)}</td><td>${esc(c.p)}</td><td>${esc(c.m)}</td><td>${st.m?'<span class="pill m">Mastered</span>':lvl.map((l,i)=>`<span class="pill" title="${["Flashcards","Dictation"][i]}">${["F","D"][i]} ${l}</span>`).join(" ")}</td>
       <td><button class="linkish" data-tm="${c.id}">${st.m?"Unmaster":"Mark mastered"}</button></td></tr>`; }).join("") : "";
   app.innerHTML = `<h3 style="margin-top:0">Your decks</h3><div class="decks">${decks}</div>
     <h3>Import words</h3>
@@ -1011,7 +1007,7 @@ function renderDecks(){
       <label class="btn primary">Choose file<input type="file" id="dfile" accept=".csv,.tsv,.txt,.xlsx,.xls,.json" hidden></label></div>
     ${pend}
     <h3>Words in “${esc(deck?.name||"")}”</h3>
-    <p class="hint" style="margin:0">F, L and D show the next interval in Flashcards, Listening and Dictation.</p>
+    <p class="hint" style="margin:0">F and D show the next interval in Flashcards and Dictation.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Word</th><th>Pinyin</th><th>Meaning</th><th>Progress</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     <h3>Daily new-word limit</h3>
     <p class="hint" style="margin:0 0 6px">Applies to Spaced review only. Study all ignores it.</p>
