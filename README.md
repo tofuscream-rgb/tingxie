@@ -27,7 +27,9 @@ Pick a session size of 5, 10, 20, or all of the available words. When a session 
 - **Retry the missed** runs a new round with only the words you got wrong.
 - Missed words are added to your Dictation reviews automatically.
 
-**Decks** lets you import word lists from CSV or Excel, switch between decks, mark words mastered, set a daily limit for new words in Spaced review, choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
+**Reading** shows your textbook passages with pinyin above each character. Tap any word to hear it and see its meaning, along with any matching words in your deck. Words from your deck are underlined, and the deck words in each lesson are listed at the top. Play a single line or the whole lesson aloud, and turn the pinyin or underlining off. Passages come from lesson packs (see below).
+
+**Decks** lets you import word lists from CSV, Excel, or lesson packs, switch between decks, mark words mastered, set a daily limit for new words in Spaced review, choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
 
 ## Importing words
 
@@ -42,6 +44,41 @@ Upload a `.csv`, `.tsv`, `.xlsx`, or `.xls` file with these columns:
 - Only `word` is required. Common alternative headers such as `hanzi`, `汉字`, `meaning`, and `拼音` are also recognized.
 - If there's no header row, columns are read in the order shown above.
 - Saving a CSV from Excel? Choose **CSV UTF-8** so the Chinese characters survive.
+
+### Lesson packs
+
+A lesson pack is a `.json` file that adds words and textbook passages to a deck in one import. Its passages appear in the **Reading** tab.
+
+```json
+{
+  "app": "tingxie-pack",
+  "deckName": "一年级下册 L10–12",
+  "cards": [
+    {"w": "诗", "p": "shī", "m": "poem; poetry", "ex": "古诗、诗人", "exen": "ancient poem, poet"}
+  ],
+  "lessons": [
+    {
+      "id": "l10", "num": 10, "title": "古诗二首", "pages": "62–63",
+      "passages": [
+        {
+          "title": "池上", "py": "chí shàng",
+          "era": "唐", "eraPy": "táng", "author": "白居易", "authorPy": "bái jū yì",
+          "poem": true,
+          "paras": [
+            [["小娃", "xiǎo wá", "little child"], ["撑", "chēng", "to pole (a boat)"], ["，"]]
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+- `cards` use the same fields as a spreadsheet row: `w` word, `p` pinyin, `m` meaning, `ex` examples, `exen` example translations.
+- Each paragraph or line in `paras` is a list of words, each written as `[text, pinyin, meaning]`. Punctuation is just `[text]`.
+- `py` and the other `…Py` fields hold the pinyin for titles, eras, and authors, one syllable per character, separated by spaces.
+- Set `"poem": true` to center the lines. `num` sets the lesson order, and `pages` is shown under the lesson title.
+- Importing a lesson with the same `id` again replaces it.
 
 ## Spaced repetition
 
