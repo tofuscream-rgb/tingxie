@@ -6,14 +6,7 @@ It runs entirely in your browser as a single HTML file, with no account, no serv
 
 ## Features
 
-**Review** has two practice modes, each with its own review schedule:
-
-- **Flashcards:** See the character in a 田字格 grid, recall the pinyin and meaning, then flip to check.
-- **Dictation:** Hear the word and type it. Single characters are read the way a teacher would in class (诗，古诗的诗) so sound-alike characters can be told apart. Each character is marked right or wrong. Switch to **Phrases** to be dictated the example phrases instead.
-
-**笔顺 Stroke order** animates how to write the word, stroke by stroke. Open it from the back of a flashcard, or after you check a dictation answer (in Phrases, it shows the whole phrase). Choose **Write it yourself** to trace each stroke in order: wrong strokes are rejected, and a hint appears after 2 misses. Stroke order needs an internet connection.
-
-Rate each card **Again**, **Hard**, **Good**, or **Easy**, or mark it **Mastered** so it never comes back.
+**Review** shows flashcards: see the character in a 田字格 grid, recall the pinyin and meaning, then flip to check. Rate each card **Again**, **Hard**, **Good**, or **Easy**, or mark it **Mastered** so it never comes back.
 
 Each review starts with a choice of session:
 
@@ -22,11 +15,15 @@ Each review starts with a choice of session:
 
 Pick a session size of 5, 10, 20, or all of the available words. When a session ends you can continue with the next batch.
 
-**Quiz** reads 10, 20, or all of your words in random order, then shows your score and what you missed.
+**Quiz** is the dictation (听写) practice. It reads 10, 20, or all of your words in random order, then shows your score and what you missed.
 
+- Single characters are read the way a teacher would in class (诗，古诗的诗) so sound-alike characters can be told apart. Choose **Phrases** to be dictated the example phrases instead.
 - Answer by **typing**, or by **writing on paper** and marking yourself.
+- When the answer is shown, the stroke order animation pops up, with the buttons to mark yourself or go to the next word.
 - **Retry the missed** runs a new round with only the words you got wrong.
-- Missed words are added to your Dictation reviews automatically.
+- Missed words are added to your flashcard reviews automatically.
+
+**笔顺 Stroke order** animates how to write a word, stroke by stroke. It pops up in the Quiz, and you can open it from the back of a flashcard. Choose **Write it yourself** to trace each stroke in order: wrong strokes are rejected, and a hint appears after 2 misses. Stroke order needs an internet connection.
 
 **Reading** shows your textbook passages with pinyin above each character. Tap any word to hear it and see its meaning, along with any matching words in your deck. Words from your deck are underlined, and the deck words in each lesson are listed at the top. Play a single line or the whole lesson aloud, and turn the pinyin or underlining off. Passages come from lesson packs (see below).
 
@@ -101,9 +98,9 @@ After that, intervals adapt to how each word goes. **Again** also brings the wor
 | `1`–`4` | Again, Hard, Good, Easy | `1` missed, `2` got it (paper mode) |
 | `0` | Again | |
 | `M` | Mark as mastered | |
-| `R` | Replay audio | Replay audio |
-| `Enter` | Check answer, then accept the suggested rating | Check answer, then next word |
-| `Esc` | Leave the answer box | Leave the answer box |
+| `R` | Replay audio (after flipping) | Replay audio |
+| `Enter` | Start or continue a session | Check answer, then next word |
+| `Esc` | Close stroke order | Leave the answer box, or close stroke order |
 
 ## Requirements
 
