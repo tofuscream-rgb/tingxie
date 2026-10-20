@@ -14,13 +14,20 @@ It runs entirely in your browser as a single HTML file, with no account, no serv
 
 Rate each card **Again**, **Hard**, **Good**, or **Easy**, or mark it **Mastered** so it never comes back.
 
+Each review starts with a choice of session:
+
+- **Spaced review:** Words that are due come first, then new words up to your daily limit. Your ratings decide when each word comes back.
+- **Study all:** Every word you haven't mastered, in random order, as extra practice. Ratings don't change your review schedule, and the daily new-word limit doesn't apply. Words you've practised are skipped until you start a fresh round.
+
+Pick a session size of 5, 10, 20, or all of the available words. When a session ends you can continue with the next batch.
+
 **Quiz** reads 10, 20, or all of your words in random order, then shows your score and what you missed.
 
 - Answer by **typing**, or by **writing on paper** and marking yourself.
 - **Retry the missed** runs a new round with only the words you got wrong.
 - Missed words are added to your Dictation reviews automatically.
 
-**Decks** lets you import word lists from CSV or Excel, switch between decks, mark words mastered, set a daily limit for new words, choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
+**Decks** lets you import word lists from CSV or Excel, switch between decks, mark words mastered, set a daily limit for new words in Spaced review, choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
 
 ## Importing words
 
