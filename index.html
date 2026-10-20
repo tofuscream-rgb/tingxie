@@ -127,27 +127,13 @@ main{max-width:880px;margin:0 auto;padding:18px 16px 40px}
 .keys kbd{font-family:inherit;border:1px solid var(--line);border-radius:4px;padding:0 5px;background:var(--surface)}
 .notice{background:var(--miss-bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:14px;margin-bottom:14px}
 
-/* lists */
-.pgrid{display:grid;grid-template-columns:220px 1fr;gap:16px;align-items:start}
-@media (max-width:700px){.pgrid{grid-template-columns:1fr}}
-.plist{display:flex;flex-direction:column;gap:6px}
-.plist button.pitem{text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 12px}
-.plist button.pitem[aria-current="true"]{border-color:var(--jade);background:var(--jade-soft)}
-.plist .pitem .zh{font-size:19px;display:block}
-.plist .pitem small{color:var(--muted);font-size:12px}
+/* panels */
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
 .panel h2{margin:0 0 4px;font-size:24px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.dots{display:flex;gap:5px;flex-wrap:wrap;margin:12px 0}
-.dots button{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface-2);font-size:12px;font-weight:600;color:var(--muted);padding:0}
-.dots button.cur{border-color:var(--jade);color:var(--jade)}
-.dots button.ok{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
-.dots button.bad{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
-.fulltext{font-size:24px;line-height:1.9;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-top:12px;white-space:pre-wrap}
 .field{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
 .field label{font-size:14px;font-weight:600}
-.field input,.field textarea{border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:var(--surface-2)}
-.field textarea{min-height:140px;font-size:19px;font-family:"Kaiti SC","STKaiti","KaiTi","Noto Serif SC",serif}
+.field input{border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:var(--surface-2)}
 .speed{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
 .speed input{accent-color:var(--jade)}
 
@@ -183,6 +169,17 @@ h3{margin:22px 0 10px;font-size:18px}
 .qres .info{flex:1;min-width:140px;font-size:14px}
 .qres .info b{color:var(--jade);font-size:15px}
 .qres .wrote{font-size:13px;color:var(--bad)}
+/* session stats + bar */
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:0 0 4px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:7px 8px;text-align:center;line-height:1.2}
+.stat b{display:block;font-size:20px}
+.stat span{font-size:11.5px;color:var(--muted)}
+.stat.due b{color:var(--again)}
+.statnote{margin:0 0 12px;font-size:12.5px}
+.sessbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sessbar .grow{flex:1}
+.setup h2{margin:0 0 6px}
+.setup .field{margin:12px 0 0}
 /* reading */
 .rbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:12px}
 .tog{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer}
@@ -215,6 +212,7 @@ h3{margin:22px 0 10px;font-size:18px}
 main.has-sheet{padding-bottom:48vh}
 @media (max-width:560px){
   .para{font-size:24px}
+  .stats{grid-template-columns:repeat(3,1fr)}
   .tzg{width:124px;height:124px}.tzg .ch{font-size:86px}
   .rate{grid-template-columns:repeat(4,1fr)}
   .rate .mst{grid-column:1/-1}
@@ -305,17 +303,17 @@ const Store = {
     if (this.busy[key] || !(key in this.pending)) return;
     const data = JSON.parse(JSON.stringify(this.pending[key])); delete this.pending[key];
     this.busy[key] = true;
+    try { localStorage.setItem("tingxie:"+key, JSON.stringify(data)); } catch (_) {}   // instant local copy
     try {
       if (this.mode === "db") await this.col.doc(key).set(data);
-      else localStorage.setItem("tingxie:"+key, JSON.stringify(data));
     } catch (e) {
       console.warn("save failed", e);
-      try { localStorage.setItem("tingxie:"+key, JSON.stringify(data)); } catch (_) {}
       if (!Store._warned) { Store._warned = true; toast("Couldn’t sync your progress just now. It’s kept on this device."); }
     }
     this.busy[key] = false;
     if (key in this.pending) this.flush(key);
   },
+  flushAll(){ for (const key of Object.keys(this.pending)) { clearTimeout(this.timers[key]); this.flush(key); } },
   async remove(key){
     delete this.pending[key];
     try { if (this.mode === "db") await this.col.doc(key).delete(); } catch (e) {}
@@ -324,6 +322,7 @@ const Store = {
 };
 
 /* ---------- state ---------- */
+const DEFAULTS = {newPerDay:15, rate:0.8, dictType:"word", retention:0.9, sessKind:"srs", sessSize:20, theme:"auto"};
 const S = {
   meta: null,           // {decks:[{id,name}], current, settings}
   decks: {},            // id -> {name, cards, nextId}
@@ -348,13 +347,13 @@ async function boot(){
   let meta = await Store.get("meta");
   if (!meta || !meta.decks || !meta.decks.length) {
     const id = "d" + uid();
-    meta = {decks:[{id, name:SEED_DECK.name}], current:id, settings:{newPerDay:15, rate:0.8, dictType:"word", retention:0.9, theme:"auto"}};
+    meta = {decks:[{id, name:SEED_DECK.name}], current:id, settings:Object.assign({}, DEFAULTS)};
     S.decks[id] = SEED_DECK; S.prog[id] = {srs:{}, daily:{}};
     S.meta = meta;
     saveMeta(); saveDeck(id); saveProg(id);
   } else {
     S.meta = meta;
-    S.meta.settings = Object.assign({newPerDay:15, rate:0.8, dictType:"word", retention:0.9, theme:"auto"}, meta.settings||{});
+    S.meta.settings = Object.assign({}, DEFAULTS, meta.settings||{});
     for (const d of meta.decks) {
       S.decks[d.id] = (await Store.get("deck-"+d.id)) || {name:d.name, cards:[], nextId:0};
       S.prog[d.id] = (await Store.get("prog-"+d.id)) || {srs:{}, daily:{}};
@@ -363,30 +362,38 @@ async function boot(){
     applyTheme();
   }
   renderDeckSel();
-  buildSession();
+  resetSession();
   render();
 }
 
 /* ---------- speech ---------- */
 const TTS = {
   voice: null, ready: false,
+  pick(){
+    const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+    this.voice = vs.find(v => /^zh[-_]CN/i.test(v.lang)) || vs.find(v => /^zh/i.test(v.lang) && !/HK|yue/i.test(v.lang)) || null;
+    this.ready = vs.length > 0;
+  },
   init(){
     if (!("speechSynthesis" in window)) return;
-    const pick = () => {
-      const vs = speechSynthesis.getVoices();
-      this.voice = vs.find(v => /^zh[-_]CN/i.test(v.lang)) || vs.find(v => /^zh/i.test(v.lang) && !/HK|yue/i.test(v.lang)) || null;
-      this.ready = vs.length > 0;
-    };
-    pick(); speechSynthesis.onvoiceschanged = () => { pick(); if (S.tab === "review") renderNotice(); };
+    this.pick();
+    speechSynthesis.addEventListener?.("voiceschanged", () => { this.pick(); renderNotice(); });
   },
-  speak(text, rateMul=1){
-    if (!("speechSynthesis" in window) || !text) return;
-    speechSynthesis.cancel();
+  utter(text, rateMul=1){
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "zh-CN"; if (this.voice) u.voice = this.voice;
     u.rate = Math.max(0.4, Math.min(1.3, S.meta.settings.rate * rateMul));
-    speechSynthesis.speak(u);
-  }
+    return u;
+  },
+  speakAll(texts, rateMul=1){
+    if (!("speechSynthesis" in window)) return;
+    if (!this.voice) this.pick();
+    const us = texts.filter(Boolean).map(t => this.utter(t, rateMul)); if (!us.length) return;
+    const go = () => us.forEach(u => speechSynthesis.speak(u));
+    if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(go, 60); }
+    else go();   // speak immediately so the first tap still counts as a user gesture on iOS
+  },
+  speak(text, rateMul=1){ if (text) this.speakAll([text], rateMul); }
 };
 function dictationSpeech(card){
   const w = card.w;
@@ -428,74 +435,120 @@ function schedule(prev, g, now=Date.now()){
   return {s, d, last:now, due:now + ivl*DAY, ivl, reps:(p ? p.reps||0 : 0) + 1, lapses};
 }
 
-/* ---------- review session ---------- */
-let sess = {queue:[], cur:null, flipped:false, check:null, isNew:{}, relearn:{}, phrase:null, hintShown:false};
-function ensureDaily(p){ if (!p.daily || p.daily.date !== todayKey()) p.daily = {date:todayKey(), new:{}}; }
-function buildSession(extraNew=0){
-  const deck = curDeck(), p = curProg(); if (!deck) return;
-  ensureDaily(p);
-  const now = Date.now(), due = [], fresh = [];
+/* ---------- review sessions ----------
+   Two kinds of session:
+   "srs"      Spaced review: due words first, then new words up to the daily new-word limit.
+              Ratings update the FSRS schedule.
+   "practice" Study all: every non-mastered word in random order. Ratings never touch the schedule.
+*/
+const MODE_NAMES = {read:"Flashcards", listen:"Listening", dictate:"Dictation"};
+const practiceRounds = {};                                     // "deckId:mode" -> Set of ids practised this round
+const roundSet = () => (practiceRounds[S.meta.current + ":" + S.mode] ||= new Set());
+const blankSession = () => ({phase:"setup", kind:null, queue:[], total:0, finished:new Set(), again:0,
+  cur:null, flipped:false, check:null, isNew:{}, relearn:{}, phrase:null, hintShown:false, due:0, fresh:0});
+let sess = blankSession();
+function resetSession(){ sess = blankSession(); }
+function ensureDaily(p){
+  if (!p.daily || p.daily.date !== todayKey()) p.daily = {date:todayKey(), new:{}, extra:{}};
+  p.daily.new ||= {}; p.daily.extra ||= {};
+}
+function newAllowance(){
+  const p = curProg(); ensureDaily(p);
+  return Math.max(0, S.meta.settings.newPerDay + (p.daily.extra[S.mode]||0) - (p.daily.new[S.mode]||0));
+}
+function modeStats(){                                          // deck-level counts for the current mode
+  const deck = curDeck(), p = curProg(), now = Date.now();
+  const out = {total:0, fresh:[], due:[], reviewed:0, mastered:0};
+  if (!deck) return out;
+  out.total = deck.cards.length;
+  const due = [];
   for (const c of deck.cards) {
     const st = p.srs[c.id];
-    if (st && st.m) continue;
+    if (st && st.m) { out.mastered++; continue; }
     const s = st && st[S.mode];
-    if (s) { if (s.due <= now) due.push([s.due, c.id]); }
-    else fresh.push(c.id);
+    if (!s) out.fresh.push(c.id);
+    else if (s.due <= now) due.push([s.due, c.id]);
+    else out.reviewed++;
   }
-  due.sort((a,b)=>a[0]-b[0]);
-  const used = p.daily.new[S.mode] || 0;
-  const left = Math.max(0, S.meta.settings.newPerDay + (p.daily.extra?.[S.mode]||0) - used);
-  const newIds = fresh.slice(0, left);
-  sess = {queue:[...due.map(d=>d[1]), ...newIds], cur:null, flipped:false, check:null, isNew:Object.fromEntries(newIds.map(i=>[i,true])), relearn:{}, phrase:null, hintShown:false};
-  nextCard(false);
+  out.due = due.sort((a,b) => a[0]-b[0]).map(d => d[1]);
+  return out;
+}
+function plannedSession(kind){                                 // which words the next session would contain
+  const z = S.meta.settings.sessSize, n = z === "all" ? Infinity : +z;
+  if (kind === "practice") {
+    const done = roundSet(), p = curProg();
+    const pool = curDeck().cards.filter(c => !(p.srs[c.id]||{}).m && !done.has(c.id)).map(c => c.id);
+    return {ids: shuffle(pool).slice(0, n), pool: pool.length, due:0, fresh:0};
+  }
+  const st = modeStats(), freshOk = st.fresh.slice(0, newAllowance());
+  const ids = st.due.concat(freshOk).slice(0, n);
+  const due = ids.filter(id => st.due.includes(id)).length;
+  return {ids, due, fresh: ids.length - due, pool: st.due.length + freshOk.length};
+}
+function startSession(kind){
+  kind = kind || S.meta.settings.sessKind;
+  const plan = plannedSession(kind);
+  resetSession();
+  if (!plan.ids.length) return render();
+  const fresh = new Set(modeStats().fresh);
+  Object.assign(sess, {kind, phase:"run", queue:plan.ids.slice(), total:plan.ids.length, due:plan.due, fresh:plan.fresh});
+  if (kind === "srs") for (const id of plan.ids) if (fresh.has(id)) sess.isNew[id] = true;
+  nextCard();
 }
 function nextCard(doRender=true){
-  const id = sess.queue.shift();
-  sess.cur = id ? curDeck().cards.find(c => c.id === id) : null;
-  sess.flipped = false; sess.check = null; sess.hintShown = false; sess.phrase = null;
-  if (sess.cur && S.mode === "dictate" && S.meta.settings.dictType === "phrase") {
-    const exs = splitExamples(sess.cur);
+  let card = null;
+  while (sess.queue.length && !card) { const id = sess.queue.shift(); card = curDeck().cards.find(c => c.id === id) || null; }
+  sess.cur = card; sess.flipped = false; sess.check = null; sess.hintShown = false; sess.phrase = null;
+  if (!card && sess.phase === "run") sess.phase = "done";
+  if (card && S.mode === "dictate" && S.meta.settings.dictType === "phrase") {
+    const exs = splitExamples(card);
     sess.phrase = exs.length ? exs[Math.floor(Math.random()*exs.length)] : null;
   }
   if (doRender) { render(); autoPlay(); }
 }
 function autoPlay(){
-  if (!sess.cur || S.tab !== "review") return;
+  if (!sess.cur || sess.phase !== "run" || S.tab !== "review") return;
   if (S.mode === "listen" && !sess.flipped) TTS.speak(sess.cur.w);
   if (S.mode === "dictate" && !sess.check) TTS.speak(sess.phrase ? sess.phrase.zh : dictationSpeech(sess.cur));
 }
+function requeue(id){ sess.again++; sess.queue.splice(Math.min(sess.queue.length, 4), 0, id); }
 function rate(r){
-  const c = sess.cur; if (!c) return;
+  const c = sess.cur; if (!c || sess.phase !== "run") return;
   if (S.mode !== "dictate" && !sess.flipped) return;
   if (S.mode === "dictate" && !sess.check) return;
-  const p = curProg(); ensureDaily(p);
-  const st = p.srs[c.id] || {};
-  if (sess.relearn[c.id]) {
-    // already rescheduled today; Again keeps it in this session until you get it
-    if (r === 1) sess.queue.splice(Math.min(sess.queue.length, 4), 0, c.id); else delete sess.relearn[c.id];
+  if (sess.kind === "practice") {                              // voluntary practice: schedule untouched
+    if (r === 1) requeue(c.id); else { sess.finished.add(c.id); roundSet().add(c.id); }
     return nextCard();
   }
-  const ns = schedule(st[S.mode], r);
-  p.srs[c.id] = Object.assign({}, st, {[S.mode]: ns});
+  const p = curProg(); ensureDaily(p);
+  const st = p.srs[c.id] || {};
+  if (sess.relearn[c.id]) {                                    // already rescheduled today; just repeat until right
+    if (r === 1) requeue(c.id); else { delete sess.relearn[c.id]; sess.finished.add(c.id); }
+    return nextCard();
+  }
+  p.srs[c.id] = Object.assign({}, st, {[S.mode]: schedule(st[S.mode], r)});
   if (sess.isNew[c.id]) { p.daily.new[S.mode] = (p.daily.new[S.mode]||0) + 1; delete sess.isNew[c.id]; }
-  if (r === 1) { sess.relearn[c.id] = true; sess.queue.splice(Math.min(sess.queue.length, 4), 0, c.id); }
+  if (r === 1) { sess.relearn[c.id] = true; requeue(c.id); } else sess.finished.add(c.id);
   saveProg(S.meta.current);
   nextCard();
 }
 function master(){
-  const c = sess.cur; if (!c) return;
-  const p = curProg();
+  const c = sess.cur; if (!c || sess.phase !== "run") return;
+  const p = curProg(), deckId = S.meta.current;
   p.srs[c.id] = Object.assign({}, p.srs[c.id]||{}, {m:true});
-  sess.queue = sess.queue.filter(i => i !== c.id);
-  saveProg(S.meta.current);
-  const deckId = S.meta.current;
+  sess.queue = sess.queue.filter(i => i !== c.id); sess.finished.add(c.id);
+  saveProg(deckId);
   toast(`“${c.w}” marked as mastered.`, "Undo", () => {
     const pp = S.prog[deckId]; if (pp && pp.srs[c.id]) delete pp.srs[c.id].m; saveProg(deckId);
-    if (S.meta.current === deckId && S.tab === "review") { if (sess.cur) sess.queue.unshift(sess.cur.id); sess.queue.unshift(c.id); nextCard(); }
+    if (S.meta.current === deckId && sess.phase === "run") {
+      sess.finished.delete(c.id);
+      if (sess.cur) sess.queue.unshift(sess.cur.id);
+      sess.queue.unshift(c.id); nextCard();
+    } else render();
   });
   nextCard();
 }
-function flip(){ if (!sess.cur || S.mode === "dictate" || sess.flipped) return; sess.flipped = true; render(); TTS.speak(sess.cur.w); }
+function flip(){ if (!sess.cur || sess.phase !== "run" || S.mode === "dictate" || sess.flipped) return; sess.flipped = true; render(); TTS.speak(sess.cur.w); }
 
 /* LCS diff of two char arrays -> flags */
 function align(a, b){
@@ -551,9 +604,14 @@ function previews(){
   return [1,2,3,4].map(r => fmtIvl(schedule(st, r, now).due - now));
 }
 function rateHTML(suggest){
+  const mst = `<button type="button" class="mst" data-act="master" title="Never show this word again">Mastered<small>never again</small><kbd>M</kbd></button>`;
+  if (sess.kind === "practice") {
+    return `<div class="rate" style="grid-template-columns:1fr 1fr auto">
+      <button type="button" class="r1 ${suggest===1?"suggest":""}" data-rate="1">Again<small>later this session</small><kbd>1</kbd></button>
+      <button type="button" class="r3 ${suggest===3?"suggest":""}" data-rate="3">Got it<small>next word</small><kbd>2</kbd></button>${mst}</div>`;
+  }
   const pv = previews(), names = ["Again","Hard","Good","Easy"];
-  return `<div class="rate">${names.map((n,i)=>`<button type="button" class="r${i+1} ${suggest===i+1?"suggest":""}" data-rate="${i+1}">${n}<small>${pv[i]}</small><kbd>${i+1}</kbd></button>`).join("")}
-    <button type="button" class="mst" data-act="master" title="Never show this word again">Mastered<small>never again</small><kbd>M</kbd></button></div>`;
+  return `<div class="rate">${names.map((n,i)=>`<button type="button" class="r${i+1} ${suggest===i+1?"suggest":""}" data-rate="${i+1}">${n}<small>${pv[i]}</small><kbd>${i+1}</kbd></button>`).join("")}${mst}</div>`;
 }
 function backHTML(c, showWord=true){
   const exs = splitExamples(c);
@@ -562,61 +620,99 @@ function backHTML(c, showWord=true){
     <div class="mean">${esc(c.m)}</div>
     ${exs.length ? `<ul class="exs">${exs.map(e=>`<li><button type="button" class="icon-btn" data-say="${esc(e.zh)}" aria-label="Play ${esc(e.zh)}">${ICON_PLAY}</button><span class="zh">${esc(e.zh)}</span><small>${esc(e.en)}</small></li>`).join("")}</ul>` : ""}`;
 }
-function renderReview(){
-  const app = $("#app"), deck = curDeck(), p = curProg();
-  const dueN = sess.queue.filter(i => !sess.isNew[i]).length + (sess.cur && !sess.isNew[sess.cur.id] ? 1 : 0);
-  const newN = sess.queue.filter(i => sess.isNew[i]).length + (sess.cur && sess.isNew[sess.cur.id] ? 1 : 0);
-  const modeBtn = (m, label) => `<button type="button" data-mode="${m}" aria-pressed="${S.mode===m}">${label}</button>`;
-  let body = "";
-  const c = sess.cur;
-  if (!deck || !deck.cards.length) {
-    body = `<div class="card"><div class="empty"><h2>This deck is empty</h2><p>Import a CSV or Excel file in Decks to add words.</p><button class="btn primary" data-tab="decks">Go to Decks</button></div></div>`;
-  } else if (!c) {
-    let next = Infinity;
-    for (const cc of deck.cards) { const st = p.srs[cc.id]; if (st && !st.m && st[S.mode]) next = Math.min(next, st[S.mode].due); }
-    const remainingNew = deck.cards.filter(cc => !(p.srs[cc.id]&&(p.srs[cc.id].m||p.srs[cc.id][S.mode]))).length;
-    body = `<div class="card"><div class="empty">
+function statsHTML(){
+  const st = modeStats();
+  const tile = (n, label, cls="") => `<div class="stat ${cls}"><b>${n}</b><span>${label}</span></div>`;
+  return `<div class="stats">${tile(st.total,"Total words")}${tile(st.fresh.length,"New (unseen)")}${tile(st.due.length,"Due now", st.due.length ? "due" : "")}${tile(st.reviewed,"Reviewed, not due")}${tile(st.mastered,"Mastered")}</div>
+    <p class="hint statnote">Counts for ${MODE_NAMES[S.mode]}. Flashcards, Listening and Dictation each keep their own schedule.</p>`;
+}
+function setupHTML(){
+  const set = S.meta.settings, kind = set.sessKind, plan = plannedSession(kind), st = modeStats(), p = curProg(); ensureDaily(p);
+  const opt = (key, val, label) => `<button type="button" data-ss="${key}:${val}" aria-pressed="${String(set[key])===String(val)}">${label}</button>`;
+  const N = plan.ids.length, s = n => n === 1 ? "" : "s";
+  let info = "", empty = "";
+  if (kind === "srs") {
+    const used = p.daily.new[S.mode]||0, cap = set.newPerDay + (p.daily.extra[S.mode]||0), waiting = Math.max(0, st.fresh.length - newAllowance());
+    info = `Due words first, then new words. Your ratings decide when each word comes back.<br>New words today: ${Math.min(used, cap)} of ${cap} introduced.${waiting ? ` ${waiting} new word${s(waiting)} will wait for later days. <button class="linkish" data-act="nolimit">Allow all new words today</button>` : ""}`;
+    if (!N) {
+      let next = Infinity; for (const c of curDeck().cards) { const x = (p.srs[c.id]||{}); if (!x.m && x[S.mode]) next = Math.min(next, x[S.mode].due); }
+      empty = `<p class="hint"><b style="color:var(--ink)">Nothing due right now.</b> ${isFinite(next) ? `Next review in ${fmtIvl(next - Date.now())}.` : ""} You can still practise with Study all.</p>`;
+    }
+  } else {
+    const done = roundSet().size;
+    info = `Every word in the deck in random order, as extra practice. Your review schedule isn’t changed.${done ? `<br>${done} word${s(done)} already practised this round. <button class="linkish" data-act="newround">Start a fresh round</button>` : ""}`;
+    if (!N) empty = `<p class="hint"><b style="color:var(--ink)">You’ve practised every word this round.</b> Start a fresh round to go again.</p>`;
+  }
+  const label = N ? `Start ${N} word${s(N)}${kind === "srs" ? ` (${plan.due} due, ${plan.fresh} new)` : ""}` : "";
+  return `<div class="panel setup">
+    <h2>Start a session</h2>
+    <div class="field"><label>Session type</label><div class="seg">${opt("sessKind","srs","Spaced review")}${opt("sessKind","practice","Study all (practice)")}</div></div>
+    <div class="field"><label>Session size</label><div class="seg">${opt("sessSize",5,"5")}${opt("sessSize",10,"10")}${opt("sessSize",20,"20")}${opt("sessSize","all","All")}</div></div>
+    <p class="hint">${info}</p>${empty}
+    <div class="row">${N ? `<button class="btn primary" data-act="sstart">${label}</button>` : ""}
+      ${kind === "srs" && !N ? `<button class="btn primary" data-ss="sessKind:practice">Switch to Study all</button>` : ""}
+      ${kind === "practice" && !N ? `<button class="btn primary" data-act="newround">Start a fresh round</button>` : ""}</div>
+  </div>`;
+}
+function doneHTML(){
+  const plan = plannedSession(sess.kind), n = sess.finished.size, left = plan.ids.length, s = k => k === 1 ? "" : "s";
+  const waiting = sess.kind === "srs" ? newAllowanceGap() : 0;
+  const restLabel = sess.kind === "srs" ? `${plan.pool} more available now` : `${plan.pool} word${s(plan.pool)} not yet practised this round`;
+  return `<div class="panel"><div class="empty" style="padding:6px 0 4px">
       <div class="tzg-row">${tzg("好","sm ok")}</div>
-      <h2>All caught up</h2>
-      <p>${isFinite(next) ? `Next review in ${fmtIvl(next - Date.now())}.` : "Nothing scheduled yet in this mode."} ${remainingNew ? `${remainingNew} new word${remainingNew>1?"s":""} left in this deck.` : ""}</p>
-      ${remainingNew ? `<button class="btn primary" data-act="morenew">Learn 10 more new words</button>` : ""}
+      <h2>Session complete</h2>
+      <p>You finished ${n} word${s(n)}${sess.again ? `, with ${sess.again} “Again” repeat${s(sess.again)}` : ""}. ${left ? restLabel + "." : sess.kind === "srs" ? (waiting ? `Nothing is due, and today’s new-word limit is reached, with ${waiting} new word${s(waiting)} waiting.` : "Nothing else is due right now.") : "You’ve practised every word this round."}</p>
+      ${sess.kind === "srs" && !left && waiting ? `<button class="linkish" data-act="nolimit">Allow all new words today</button>` : ""}
+    </div>
+    <div class="row" style="justify-content:center">
+      ${left ? `<button class="btn primary" data-act="scont">Continue with next ${left}</button>` : ""}
+      ${sess.kind === "srs" ? `<button class="btn ${left ? "" : "primary"}" data-act="spractice">Study all vocabulary</button>` : (!left ? `<button class="btn primary" data-act="newround">Start a fresh round</button>` : "")}
+      <button class="btn" data-act="ssetup">Session options</button>
     </div></div>`;
-  } else if (S.mode === "read") {
-    body = `<div class="card enter"><span class="cardtag">${sess.isNew[c.id]?"New":"Review"}</span>
+}
+function cardHTML(){
+  const c = sess.cur, tag = sess.kind === "practice" ? "Practice" : sess.isNew[c.id] ? "New" : sess.relearn[c.id] ? "Again" : "Review";
+  if (S.mode === "read") return `<div class="card enter"><span class="cardtag">${tag}</span>
       ${sess.flipped ? backHTML(c) : `<div class="tzg-row">${[...c.w].map(ch=>tzg(ch)).join("")}</div><p class="hint">Say it, recall the meaning, then flip.</p>`}
     </div>${sess.flipped ? rateHTML() : `<div class="flip"><button class="btn primary" data-act="flip">Show answer (Space)</button></div>`}`;
-  } else if (S.mode === "listen") {
-    body = `<div class="card enter"><span class="cardtag">${sess.isNew[c.id]?"New":"Review"}</span>
+  if (S.mode === "listen") return `<div class="card enter"><span class="cardtag">${tag}</span>
       ${sess.flipped ? backHTML(c) : `<button type="button" class="big-play" data-act="replay" aria-label="Play again">${ICON_PLAY}</button><div class="tzg-row">${[...c.w].map(()=>tzg("?","q")).join("")}</div><p class="hint">Listen, picture the character, then flip.</p>`}
     </div>${sess.flipped ? rateHTML() : `<div class="flip"><button class="btn primary" data-act="flip">Show answer (Space)</button></div>`}`;
-  } else {
-    const target = sess.phrase ? sess.phrase.zh : c.w;
-    const n = [...normalize(target)].length;
-    if (!sess.check) {
-      body = `<div class="card enter"><span class="cardtag">${sess.isNew[c.id]?"New":"Review"}${sess.phrase?", phrase":""}</span>
-        <button type="button" class="big-play" data-act="replay" aria-label="Play again">${ICON_PLAY}</button>
-        <div class="tzg-row">${Array.from({length:n},()=>tzg("","xs")).join("")}</div>
-        <div class="answer"><input id="ans" lang="zh-CN" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type what you hear" aria-label="Your answer"><button class="btn primary" data-act="check">Check</button></div>
-        <div>${sess.hintShown ? `<span class="hint">${esc(sess.phrase ? sess.phrase.en : c.m)}</span>` : `<button class="linkish" data-act="hint">Show meaning hint</button>`}</div>
-      </div>`;
-    } else {
-      const ok = sess.check.correct;
-      body = `<div class="card enter"><span class="cardtag">${sess.isNew[c.id]?"New":"Review"}${sess.phrase?", phrase":""}</span>
-        <div class="verdict ${ok?"ok":"bad"}">${ok ? "Correct" : "Not quite"}</div>
-        ${diffHTML(sess.check)}
-        ${sess.phrase ? `<div class="mean"><span class="zh" style="font-size:22px">${esc(sess.phrase.zh)}</span> ${esc(sess.phrase.en)}</div><hr style="width:100%;max-width:440px;border:0;border-top:1px solid var(--line)">` : ""}
-        ${backHTML(c, false)}
-      </div>${rateHTML(ok ? 3 : 1)}`;
-    }
-  }
+  const target = sess.phrase ? sess.phrase.zh : c.w, n = [...normalize(target)].length;
+  if (!sess.check) return `<div class="card enter"><span class="cardtag">${tag}${sess.phrase?", phrase":""}</span>
+      <button type="button" class="big-play" data-act="replay" aria-label="Play again">${ICON_PLAY}</button>
+      <div class="tzg-row">${Array.from({length:n},()=>tzg("","xs")).join("")}</div>
+      <div class="answer"><input id="ans" lang="zh-CN" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Type what you hear" aria-label="Your answer"><button class="btn primary" data-act="check">Check</button></div>
+      <div>${sess.hintShown ? `<span class="hint">${esc(sess.phrase ? sess.phrase.en : c.m)}</span>` : `<button class="linkish" data-act="hint">Show meaning hint</button>`}</div>
+    </div>`;
+  const ok = sess.check.correct;
+  return `<div class="card enter"><span class="cardtag">${tag}${sess.phrase?", phrase":""}</span>
+      <div class="verdict ${ok?"ok":"bad"}">${ok ? "Correct" : "Not quite"}</div>
+      ${diffHTML(sess.check)}
+      ${sess.phrase ? `<div class="mean"><span class="zh" style="font-size:22px">${esc(sess.phrase.zh)}</span> ${esc(sess.phrase.en)}</div><hr style="width:100%;max-width:440px;border:0;border-top:1px solid var(--line)">` : ""}
+      ${backHTML(c, false)}
+    </div>${rateHTML(ok ? 3 : 1)}`;
+}
+function renderReview(){
+  const app = $("#app"), deck = curDeck();
+  const modeBtn = (m, label) => `<button type="button" data-mode="${m}" aria-pressed="${S.mode===m}">${label}</button>`;
+  let body;
+  if (!deck || !deck.cards.length) body = `<div class="card"><div class="empty"><h2>This deck is empty</h2><p>Import a CSV or Excel file in Decks to add words.</p><button class="btn primary" data-tab="decks">Go to Decks</button></div></div>`;
+  else if (sess.phase === "setup") body = setupHTML();
+  else if (sess.phase === "done") body = doneHTML();
+  else body = `<div class="sessbar"><span class="pill ${sess.kind==="srs"?"m":""}">${sess.kind==="srs" ? "Spaced review" : "Study all"}</span>
+      <b>Word ${Math.min(sess.finished.size + 1, sess.total)} of ${sess.total}</b>
+      <span class="hint grow">${sess.kind==="srs" ? `${sess.due} due, ${sess.fresh} new` : "schedule unchanged"}${sess.again ? `, ${sess.again} again` : ""}</span>
+      <button class="linkish" data-act="send">End session</button></div>
+    <div class="qbar"><span style="width:${sess.total ? sess.finished.size/sess.total*100 : 0}%"></span></div>${cardHTML()}`;
   app.innerHTML = `<div id="notice">${noticeHTML()}</div>
     <div class="modes">
       <div class="seg" role="group" aria-label="Practice mode">${modeBtn("read","Flashcards")}${modeBtn("listen","Listening")}${modeBtn("dictate","Dictation")}</div>
       ${S.mode==="dictate" ? `<div class="seg" role="group" aria-label="Dictation type"><button type="button" data-dt="word" aria-pressed="${S.meta.settings.dictType==="word"}">Words</button><button type="button" data-dt="phrase" aria-pressed="${S.meta.settings.dictType==="phrase"}">Phrases</button></div>` : ""}
       <label class="speed">Speed <input type="range" min="0.5" max="1.2" step="0.1" value="${S.meta.settings.rate}" data-act="rate" aria-label="Speech speed"></label>
-      <div class="counts"><b>${dueN}</b> to review, <b>${newN}</b> new</div>
-    </div>${body}
-    <p class="keys">${S.mode==="dictate" ? "<kbd>Enter</kbd> check, then <kbd>Enter</kbd> accepts the highlighted rating. <kbd>Esc</kbd> leaves the box so you can use <kbd>1</kbd>–<kbd>4</kbd>, <kbd>M</kbd> and <kbd>R</kbd> replay." : "<kbd>Space</kbd> flip, <kbd>1</kbd>–<kbd>4</kbd> rate (<kbd>0</kbd> also means Again), <kbd>M</kbd> mastered, <kbd>R</kbd> replay audio."}</p>`;
+    </div>
+    ${deck && deck.cards.length ? statsHTML() : ""}${body}
+    ${sess.phase === "run" ? `<p class="keys">${S.mode==="dictate" ? "<kbd>Enter</kbd> check, then <kbd>Enter</kbd> accepts the highlighted rating. <kbd>Esc</kbd> leaves the box so you can use <kbd>1</kbd>–<kbd>4</kbd>, <kbd>M</kbd> and <kbd>R</kbd> replay." : sess.kind==="practice" ? "<kbd>Space</kbd> flip, <kbd>1</kbd> again, <kbd>2</kbd> got it, <kbd>M</kbd> mastered, <kbd>R</kbd> replay." : "<kbd>Space</kbd> flip, <kbd>1</kbd>–<kbd>4</kbd> rate (<kbd>0</kbd> also means Again), <kbd>M</kbd> mastered, <kbd>R</kbd> replay audio."}</p>` : `<p class="keys"><kbd>Enter</kbd> starts or continues a session.</p>`}`;
   const inp = $("#ans"); if (inp) setTimeout(() => inp.focus({preventScroll:true}), 30);
 }
 
@@ -723,11 +819,6 @@ function lessonText(l){ return [l.title, ...l.passages.flatMap(p => [p.title, ..
 function lessonCards(l){ const txt = lessonText(l); return curDeck().cards.filter(c => c.w && txt.includes(c.w)); }
 function rubyHTML(t, py){ const syl = String(py||"").split(/\s+/); return [...String(t)].map((c,i) => `<ruby>${esc(c)}<rt>${esc(syl[i]||"")}</rt></ruby>`).join(""); }
 const paraText = para => para.map(t => t[0]).join("");
-function speakList(texts){
-  if (!("speechSynthesis" in window)) return;
-  speechSynthesis.cancel();
-  for (const text of texts) { if (!text) continue; const u = new SpeechSynthesisUtterance(text); u.lang = "zh-CN"; if (TTS.voice) u.voice = TTS.voice; u.rate = Math.max(0.4, Math.min(1.3, S.meta.settings.rate)); speechSynthesis.speak(u); }
-}
 function sheetHTML(){
   const s = R.sel; if (!s) return "";
   const p = curProg();
@@ -843,7 +934,8 @@ function renderDecks(){
     <h3>Words in “${esc(deck?.name||"")}”</h3>
     <p class="hint" style="margin:0">F, L and D show the next interval in Flashcards, Listening and Dictation.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Word</th><th>Pinyin</th><th>Meaning</th><th>Progress</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <h3>Daily limit</h3>
+    <h3>Daily new-word limit</h3>
+    <p class="hint" style="margin:0 0 6px">Applies to Spaced review only. Study all ignores it.</p>
     <label class="row hint">New words per mode each day <input type="number" min="1" max="200" value="${S.meta.settings.newPerDay}" data-act="newper" style="width:80px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--surface-2)"></label>
     <h3>Memory target</h3>
     <div class="seg" role="group" aria-label="Target recall rate">${[0.85,0.9,0.95].map(v=>`<button type="button" data-ret="${v}" aria-pressed="${S.meta.settings.retention===v}">${Math.round(v*100)}%</button>`).join("")}</div>
@@ -860,11 +952,11 @@ function renderDecks(){
     try {
       const data = JSON.parse(await file.text());
       if (data.app !== "tingxie" || !data.meta || !Array.isArray(data.meta.decks) || !data.meta.decks.length) throw new Error("bad");
-      S.meta = data.meta; S.meta.settings = Object.assign({newPerDay:15, rate:0.8, dictType:"word", retention:0.9, theme:"auto"}, data.meta.settings||{});
+      S.meta = data.meta; S.meta.settings = Object.assign({}, DEFAULTS, data.meta.settings||{});
       S.decks = {}; S.prog = {};
       for (const d of S.meta.decks) { S.decks[d.id] = data.decks[d.id] || {name:d.name, cards:[], nextId:0}; S.prog[d.id] = (data.prog||{})[d.id] || {srs:{}, daily:{}}; saveDeck(d.id); saveProg(d.id); }
       if (!S.decks[S.meta.current]) S.meta.current = S.meta.decks[0].id;
-      saveMeta(); applyTheme(); renderDeckSel(); buildSession(); render();
+      saveMeta(); applyTheme(); renderDeckSel(); resetSession(); R.lesson = null; R.sel = null; Q.phase = "setup"; render();
       toast(`Restored ${S.meta.decks.length} deck${S.meta.decks.length>1?"s":""}.`);
     } catch (e) { toast("That file isn’t a 听写本 backup."); }
   };
@@ -885,6 +977,7 @@ async function exportBackup(){
   a.href = URL.createObjectURL(new Blob([json], {type:"application/json"})); a.download = filename;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
+function newAllowanceGap(){ return Math.max(0, modeStats().fresh.length - newAllowance()); }
 function addLessons(deck, lessons){
   if (!lessons || !lessons.length) return;
   const ids = new Set(lessons.map(l => l.id));
@@ -901,8 +994,9 @@ document.addEventListener("click", e => {
   const t = e.target.closest("button, [data-act], [data-tk]"); if (!t) return;
   const ds = t.dataset;
   if (ds.tab) { S.tab = ds.tab; D.confirm = null; window.speechSynthesis?.cancel?.(); render(); if (S.tab==="review") autoPlay(); return; }
-  if (ds.mode) { S.mode = ds.mode; buildSession(); render(); autoPlay(); return; }
-  if (ds.dt) { S.meta.settings.dictType = ds.dt; saveMeta(); if (sess.cur) sess.queue.unshift(sess.cur.id); nextCard(); return; }
+  if (ds.mode) { S.mode = ds.mode; resetSession(); window.speechSynthesis?.cancel?.(); return render(); }
+  if (ds.dt) { S.meta.settings.dictType = ds.dt; saveMeta(); if (sess.phase === "run" && sess.cur) { sess.queue.unshift(sess.cur.id); return nextCard(); } return render(); }
+  if (ds.ss) { const [k, v] = ds.ss.split(":"); S.meta.settings[k] = (k === "sessSize" && v !== "all") ? +v : v; saveMeta(); return render(); }
   if (ds.rate && t.tagName === "BUTTON") return rate(+ds.rate);
   if (ds.say) return TTS.speak(ds.say);
   if (ds.q) { const [k, v] = ds.q.split(":"); Q[k] = (k === "n" && v !== "all") ? +v : v; return render(); }
@@ -912,18 +1006,18 @@ document.addEventListener("click", e => {
   if (ds.rp) { const [pi, ri] = ds.rp.split(":").map(Number); return TTS.speak(paraText(curLesson().passages[pi].paras[ri])); }
   if (ds.themeSet) { S.meta.settings.theme = ds.themeSet; saveMeta(); applyTheme(); return render(); }
   if (ds.ret) { S.meta.settings.retention = +ds.ret; saveMeta(); return render(); }
-  if (ds.use) { S.meta.current = ds.use; saveMeta(); renderDeckSel(); buildSession(); return render(); }
-  if (ds.tm) { const p = curProg(); const st = p.srs[ds.tm] ||= {}; if (st.m) delete st.m; else st.m = true; saveProg(S.meta.current); buildSession(); return render(); }
+  if (ds.use) { S.meta.current = ds.use; saveMeta(); renderDeckSel(); resetSession(); R.lesson = null; R.sel = null; Q.phase = "setup"; return render(); }
+  if (ds.tm) { const p = curProg(); const st = p.srs[ds.tm] ||= {}; if (st.m) delete st.m; else st.m = true; saveProg(S.meta.current); if (sess.phase !== "run") resetSession(); return render(); }
   if (ds.reset) {
     if (D.confirm !== "r"+ds.reset) { D.confirm = "r"+ds.reset; return render(); }
-    S.prog[ds.reset] = {srs:{}, daily:{}}; saveProg(ds.reset); D.confirm = null; buildSession(); toast("Progress reset."); return render();
+    S.prog[ds.reset] = {srs:{}, daily:{}}; saveProg(ds.reset); D.confirm = null; resetSession(); toast("Progress reset."); return render();
   }
   if (ds.del) {
     if (D.confirm !== "d"+ds.del) { D.confirm = "d"+ds.del; return render(); }
     S.meta.decks = S.meta.decks.filter(d => d.id !== ds.del); delete S.decks[ds.del]; delete S.prog[ds.del];
     Store.remove("deck-"+ds.del); Store.remove("prog-"+ds.del);
     if (S.meta.current === ds.del) S.meta.current = S.meta.decks[0].id;
-    saveMeta(); renderDeckSel(); D.confirm = null; buildSession(); return render();
+    saveMeta(); renderDeckSel(); D.confirm = null; resetSession(); return render();
   }
   switch (ds.act) {
     case "flip": return flip();
@@ -931,7 +1025,12 @@ document.addEventListener("click", e => {
     case "replay": return autoPlay();
     case "check": return submitDictation();
     case "hint": sess.hintShown = true; return render();
-    case "morenew": { const p = curProg(); ensureDaily(p); p.daily.extra = p.daily.extra||{}; p.daily.extra[S.mode] = (p.daily.extra[S.mode]||0) + 10; saveProg(S.meta.current); buildSession(); render(); return autoPlay(); }
+    case "sstart": case "scont": return startSession(sess.kind && ds.act === "scont" ? sess.kind : null);
+    case "spractice": S.meta.settings.sessKind = "practice"; saveMeta(); return startSession("practice");
+    case "send": sess.queue = []; sess.cur = null; sess.phase = sess.finished.size ? "done" : "setup"; window.speechSynthesis?.cancel?.(); return render();
+    case "ssetup": resetSession(); return render();
+    case "newround": roundSet().clear(); S.meta.settings.sessKind = "practice"; saveMeta(); resetSession(); return render();
+    case "nolimit": { const p = curProg(); ensureDaily(p); p.daily.extra[S.mode] = (p.daily.extra[S.mode]||0) + newAllowanceGap(); saveProg(S.meta.current); return render(); }
     case "qstart": case "qnew": return startQuiz();
     case "qcheck": return quizCheck();
     case "qnext": return quizNext();
@@ -945,20 +1044,20 @@ document.addEventListener("click", e => {
     case "qretry": { const missed = Q.items.filter((_,i) => !(Q.res[i] && Q.res[i].ok)); return startQuiz(missed); }
     case "qsetup": Q.phase = "setup"; return render();
     case "rclose": R.sel = null; return render();
-    case "rall": { const L = curLesson(); return L && speakList(L.passages.flatMap(p => [p.title, ...(p.author ? [(p.era||"") + p.author] : []), ...p.paras.map(paraText)])); }
+    case "rall": { const L = curLesson(); return L && TTS.speakAll(L.passages.flatMap(p => [p.title, ...(p.author ? [(p.era||"") + p.author] : []), ...p.paras.map(paraText)])); }
     case "dcancel": D.pending = null; return render();
     case "bexport": return exportBackup();
     case "dcreate": {
       const id = "d"+uid(), name = ($("#dn").value.trim() || D.pending.name);
       const deck = {name, cards:[], nextId:0, lessons:[]}; addCards(deck, D.pending.cards); addLessons(deck, D.pending.lessons);
       S.decks[id] = deck; S.prog[id] = {srs:{}, daily:{}}; S.meta.decks.push({id, name}); S.meta.current = id;
-      saveDeck(id); saveProg(id); saveMeta(); renderDeckSel(); D.pending = null; buildSession(); toast(`Created “${name}” with ${deck.cards.length} words.`); return render();
+      saveDeck(id); saveProg(id); saveMeta(); renderDeckSel(); D.pending = null; resetSession(); R.lesson = null; R.sel = null; toast(`Created “${name}” with ${deck.cards.length} words.`); return render();
     }
     case "dmerge": {
       const tid = ds.target || S.meta.current, nl = (D.pending.lessons||[]).length;
       const n = addCards(S.decks[tid], D.pending.cards); addLessons(S.decks[tid], D.pending.lessons); saveDeck(tid);
       if (tid !== S.meta.current) { S.meta.current = tid; saveMeta(); renderDeckSel(); }
-      D.pending = null; R.lesson = null; R.sel = null; buildSession();
+      D.pending = null; R.lesson = null; R.sel = null; if (sess.phase !== "run") resetSession();
       toast(`Added ${n} new word${n===1?"":"s"}${nl ? ` and ${nl} lesson${nl===1?"":"s"}` : ""}.`); return render();
     }
   }
@@ -970,9 +1069,9 @@ document.addEventListener("change", e => {
 document.addEventListener("input", e => {
   const ds = e.target.dataset;
   if (ds.act === "rate") { S.meta.settings.rate = +e.target.value; saveMeta(); }
-  if (ds.act === "newper") { const v = Math.max(1, Math.min(200, +e.target.value || 15)); S.meta.settings.newPerDay = v; saveMeta(); buildSession(); }
+  if (ds.act === "newper") { const v = Math.max(1, Math.min(200, +e.target.value || 15)); S.meta.settings.newPerDay = v; saveMeta(); if (sess.phase !== "run") resetSession(); }
 });
-$("#deckSel").addEventListener("change", e => { Q.phase = "setup"; R.lesson = null; R.sel = null; S.meta.current = e.target.value; saveMeta(); buildSession(); render(); if (S.tab==="review") autoPlay(); });
+$("#deckSel").addEventListener("change", e => { Q.phase = "setup"; R.lesson = null; R.sel = null; S.meta.current = e.target.value; saveMeta(); resetSession(); window.speechSynthesis?.cancel?.(); render(); });
 document.addEventListener("keydown", e => {
   if (e.isComposing || e.keyCode === 229) return;
   const inInput = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
@@ -984,11 +1083,15 @@ document.addEventListener("keydown", e => {
       else if (e.key === "Escape") e.target.blur();
       return;
     }
-    if (inInput) return;
+    if (inInput || e.target.tagName === "BUTTON" && e.key === "Enter") return;
+    if (sess.phase !== "run") {
+      if (e.key === "Enter") { const b = $("[data-act=scont]") || $("[data-act=sstart]"); if (b) { e.preventDefault(); b.click(); } }
+      return;
+    }
     if (S.mode === "dictate" && sess.check && e.key === "Enter") { e.preventDefault(); return rate(sess.check.correct ? 3 : 1); }
     if (e.key === " ") { e.preventDefault(); return flip(); }
     if (e.key === "0") return rate(1);
-    if (/^[1-4]$/.test(e.key)) return rate(+e.key);
+    if (/^[1-4]$/.test(e.key)) return rate(sess.kind === "practice" ? (e.key === "1" ? 1 : 3) : +e.key);
     if (e.key === "m" || e.key === "M") return master();
     if (e.key === "r" || e.key === "R") return autoPlay();
   } else if (S.tab === "quiz" && Q.phase === "run") {
@@ -1007,6 +1110,8 @@ document.addEventListener("keydown", e => {
     if (e.key === "r" || e.key === "R") quizSpeak();
   }
 });
+window.addEventListener("pagehide", () => Store.flushAll());
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") Store.flushAll(); });
 TTS.init();
 boot();
 </script>
