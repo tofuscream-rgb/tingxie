@@ -20,7 +20,7 @@ Rate each card **Again**, **Hard**, **Good**, or **Easy**, or mark it **Mastered
 - **Retry the missed** runs a new round with only the words you got wrong.
 - Missed words are added to your Dictation reviews automatically.
 
-**Decks** lets you import word lists from CSV or Excel, switch between decks, mark words mastered, set a daily limit for new words, and back up or restore your progress.
+**Decks** lets you import word lists from CSV or Excel, switch between decks, mark words mastered, set a daily limit for new words, choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
 
 ## Importing words
 
