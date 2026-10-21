@@ -27,7 +27,7 @@ Pick a session size of 5, 10, 20, or all of the available words. When a session 
 
 **Reading** shows your textbook passages with pinyin above each character. Tap any word to hear it and see its meaning, along with any matching words in your deck. Words from your deck are underlined, and the deck words in each lesson are listed at the top. Play a single line or the whole lesson aloud, and turn the pinyin or underlining off. Passages come from lesson packs (see below).
 
-**Decks** lets you import word lists from CSV, Excel, or lesson packs, switch between decks, mark words mastered, set a daily limit for new words in Spaced review, choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
+**Decks** lets you import word lists from CSV, Excel, or lesson packs, switch between decks, mark words mastered, set a daily limit for new words in Spaced review, pick the voice that reads words aloud under **Voice** (with a **Test** button), choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
 
 ## Importing words
 
@@ -105,7 +105,7 @@ After that, intervals adapt to how each word goes. **Again** also brings the wor
 ## Requirements
 
 - **A Chinese keyboard** (pinyin input) to type answers.
-- **A Mandarin voice on your device.** Audio uses your browser's built-in text-to-speech. If the app warns that no Chinese voice was found, add Mandarin (Chinese, China) speech in your system's language or accessibility settings and reload.
+- **A Mandarin voice on your device.** Audio uses your browser's built-in text-to-speech. Pick a voice under **Decks → Voice**. In Chrome, "Google 普通话（中国大陆）" usually sounds best and is chosen automatically when available. If the app warns that no Chinese voice was found, add Mandarin (Chinese, China) speech in your system's language or accessibility settings and reload.
 - A modern browser: Chrome, Edge, Safari, or Firefox.
 
 ## Your data

@@ -305,7 +305,7 @@ const Store = {
 };
 
 /* ---------- state ---------- */
-const DEFAULTS = {newPerDay:15, rate:0.8, retention:0.9, sessKind:"srs", sessSize:20, theme:"auto"};
+const DEFAULTS = {newPerDay:15, rate:0.8, retention:0.9, sessKind:"srs", sessSize:20, theme:"auto", voice:""};
 const S = {
   meta: null,           // {decks:[{id,name}], current, settings}
   decks: {},            // id -> {name, cards, nextId}
@@ -341,7 +341,7 @@ async function boot(){
       S.prog[d.id] = (await Store.get("prog-"+d.id)) || {srs:{}, daily:{}};
     }
     if (!S.decks[S.meta.current]) S.meta.current = meta.decks[0].id;
-    applyTheme();
+    applyTheme(); TTS.pick();
   }
   renderDeckSel();
   resetSession();
@@ -351,15 +351,24 @@ async function boot(){
 /* ---------- speech ---------- */
 const TTS = {
   voice: null, ready: false,
-  pick(){
+  // Chinese voices on this device, mainland Mandarin first
+  list(){
     const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
-    this.voice = vs.find(v => /^zh[-_]CN/i.test(v.lang)) || vs.find(v => /^zh/i.test(v.lang) && !/HK|yue/i.test(v.lang)) || null;
-    this.ready = vs.length > 0;
+    const rank = v => /^zh[-_]CN|^cmn/i.test(v.lang) ? 0 : /HK|yue/i.test(v.lang) ? 2 : 1;
+    return vs.filter(v => /^(zh|cmn|yue)/i.test(v.lang)).sort((a, b) => rank(a) - rank(b));
+  },
+  pick(){
+    const vs = this.list(), want = S.meta && S.meta.settings.voice;
+    const mainland = v => /^zh[-_]CN|^cmn/i.test(v.lang);
+    this.voice = (want && vs.find(v => v.voiceURI === want))
+      || vs.find(v => mainland(v) && /google/i.test(v.name))   // Chrome's online voice usually sounds best
+      || vs.find(mainland) || vs.find(v => !/HK|yue/i.test(v.lang)) || null;
+    this.ready = (window.speechSynthesis ? speechSynthesis.getVoices() : []).length > 0;
   },
   init(){
     if (!("speechSynthesis" in window)) return;
     this.pick();
-    speechSynthesis.addEventListener?.("voiceschanged", () => { this.pick(); renderNotice(); });
+    speechSynthesis.addEventListener?.("voiceschanged", () => { this.pick(); renderNotice(); const sel = $("#voiceSel"); if (sel) sel.innerHTML = voiceOptionsHTML(); });
   },
   utter(text, rateMul=1){
     const u = new SpeechSynthesisUtterance(text);
@@ -377,6 +386,12 @@ const TTS = {
   },
   speak(text, rateMul=1){ if (text) this.speakAll([text], rateMul); }
 };
+function voiceOptionsHTML(){
+  const want = S.meta.settings.voice, vs = TTS.list();
+  const auto = `<option value="" ${want ? "" : "selected"}>Automatic${!want && TTS.voice ? ` (${esc(TTS.voice.name)})` : ""}</option>`;
+  return auto + vs.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === want ? "selected" : ""}>${esc(v.name)} · ${esc(v.lang)}${v.localService ? "" : " · online"}</option>`).join("");
+}
+const VOICE_SAMPLE = "你好！诗，古诗的诗。我们一起学习汉字。";
 function dictationSpeech(card){
   const w = card.w;
   if ([...w].length === 1) {
@@ -965,6 +980,9 @@ function renderDecks(){
     <h3>Memory target</h3>
     <div class="seg" role="group" aria-label="Target recall rate">${[0.85,0.9,0.95].map(v=>`<button type="button" data-ret="${v}" aria-pressed="${S.meta.settings.retention===v}">${Math.round(v*100)}%</button>`).join("")}</div>
     <p class="hint">How likely you should be to still remember a word when it comes back. 90% is the recommended default. Higher means more frequent reviews.</p>
+    <h3>Voice</h3>
+    <div class="row"><select class="deck" id="voiceSel" data-act="voice" aria-label="Voice" style="max-width:100%;flex:1;min-width:0">${voiceOptionsHTML()}</select><button class="btn" data-act="vtest">Test</button></div>
+    <p class="hint">${"speechSynthesis" in window ? (TTS.list().length ? "These voices come from your device and browser, so other devices may list different ones. In Chrome, “Google 普通话（中国大陆）” usually sounds best. Voices marked online need an internet connection." : "No Chinese voices found on this device. Add Chinese (Mandarin) speech in your system’s language or accessibility settings, then reload.") : "This browser can’t speak. Try Chrome, Edge or Safari."}</p>
     <h3>Appearance</h3>
     <div class="seg" role="group" aria-label="Theme">${[["auto","System"],["light","Light"],["dark","Dark"]].map(([v,l])=>`<button type="button" data-theme-set="${v}" aria-pressed="${S.meta.settings.theme===v}">${l}</button>`).join("")}</div>
     <p class="hint">System follows your device's light or dark setting.</p>
@@ -981,7 +999,7 @@ function renderDecks(){
       S.decks = {}; S.prog = {};
       for (const d of S.meta.decks) { S.decks[d.id] = data.decks[d.id] || {name:d.name, cards:[], nextId:0}; S.prog[d.id] = (data.prog||{})[d.id] || {srs:{}, daily:{}}; saveDeck(d.id); saveProg(d.id); }
       if (!S.decks[S.meta.current]) S.meta.current = S.meta.decks[0].id;
-      saveMeta(); applyTheme(); renderDeckSel(); resetSession(); R.lesson = null; R.sel = null; Q.phase = "setup"; render();
+      saveMeta(); applyTheme(); TTS.pick(); renderDeckSel(); resetSession(); R.lesson = null; R.sel = null; Q.phase = "setup"; render();
       toast(`Restored ${S.meta.decks.length} deck${S.meta.decks.length>1?"s":""}.`);
     } catch (e) { toast("That file isn’t a 听写本 backup."); }
   };
@@ -1049,6 +1067,7 @@ document.addEventListener("click", e => {
     case "ssetup": resetSession(); return render();
     case "newround": roundSet().clear(); S.meta.settings.sessKind = "practice"; saveMeta(); resetSession(); return render();
     case "nolimit": { const p = curProg(); ensureDaily(p); p.daily.extra[S.mode] = (p.daily.extra[S.mode]||0) + newAllowanceGap(); saveProg(S.meta.current); return render(); }
+    case "vtest": return TTS.speak(VOICE_SAMPLE);
     case "qstart": case "qnew": return startQuiz();
     case "qcheck": return quizCheck();
     case "qnext": return quizNext();
@@ -1085,6 +1104,7 @@ document.addEventListener("click", e => {
   }
 });
 document.addEventListener("change", e => {
+  if (e.target.id === "voiceSel") { S.meta.settings.voice = e.target.value; saveMeta(); TTS.pick(); e.target.innerHTML = voiceOptionsHTML(); return TTS.speak(VOICE_SAMPLE); }
   const tg = e.target.dataset && e.target.dataset.tog;
   if (tg) { S.meta.settings[tg] = e.target.checked; saveMeta(); render(); }
 });
