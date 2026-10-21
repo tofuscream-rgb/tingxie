@@ -281,26 +281,10 @@ function toast(msg, actionLabel, action){
   clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.add("hidden"), 5000);
 }
 
-/* ---------- storage: synced db when available, browser storage otherwise ---------- */
+/* ---------- storage: browser storage ---------- */
 const Store = {
-  mode: "local", col: null, pending: {}, timers: {}, busy: {},
-  async init(){
-    try {
-      if (window.claude && typeof window.claude.use === "function") {
-        const timeout = new Promise(r => setTimeout(() => r([null,null]), 8000));
-        const [db, user] = await Promise.race([Promise.all([window.claude.use("db"), window.claude.use("user")]), timeout]);
-        if (db && user) {
-          const id = await user.id();
-          if (id) { this.col = db.collection("data/users/" + id); this.mode = "db"; }
-        }
-      }
-    } catch (e) { this.mode = "local"; }
-  },
+  pending: {}, timers: {},
   async get(key){
-    if (this.mode === "db") {
-      try { const s = await this.col.doc(key).get(); return s.exists ? JSON.parse(JSON.stringify(s.data())) : null; }
-      catch (e) { console.warn("db read failed", e); }
-    }
     try { const v = localStorage.getItem("tingxie:"+key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
   },
   save(key, obj){
@@ -308,24 +292,14 @@ const Store = {
     clearTimeout(this.timers[key]);
     this.timers[key] = setTimeout(() => this.flush(key), 600);
   },
-  async flush(key){
-    if (this.busy[key] || !(key in this.pending)) return;
-    const data = JSON.parse(JSON.stringify(this.pending[key])); delete this.pending[key];
-    this.busy[key] = true;
-    try { localStorage.setItem("tingxie:"+key, JSON.stringify(data)); } catch (_) {}   // instant local copy
-    try {
-      if (this.mode === "db") await this.col.doc(key).set(data);
-    } catch (e) {
-      console.warn("save failed", e);
-      if (!Store._warned) { Store._warned = true; toast("Couldn’t sync your progress just now. It’s kept on this device."); }
-    }
-    this.busy[key] = false;
-    if (key in this.pending) this.flush(key);
+  flush(key){
+    if (!(key in this.pending)) return;
+    const data = this.pending[key]; delete this.pending[key];
+    try { localStorage.setItem("tingxie:"+key, JSON.stringify(data)); } catch (e) { console.warn("save failed", e); }
   },
   flushAll(){ for (const key of Object.keys(this.pending)) { clearTimeout(this.timers[key]); this.flush(key); } },
-  async remove(key){
+  remove(key){
     delete this.pending[key];
-    try { if (this.mode === "db") await this.col.doc(key).delete(); } catch (e) {}
     try { localStorage.removeItem("tingxie:"+key); } catch (e) {}
   }
 };
@@ -352,7 +326,6 @@ function applyTheme(){
 }
 
 async function boot(){
-  await Store.init();
   let meta = await Store.get("meta");
   if (!meta || !meta.decks || !meta.decks.length) {
     const id = "d" + uid();
@@ -996,7 +969,7 @@ function renderDecks(){
     <div class="seg" role="group" aria-label="Theme">${[["auto","System"],["light","Light"],["dark","Dark"]].map(([v,l])=>`<button type="button" data-theme-set="${v}" aria-pressed="${S.meta.settings.theme===v}">${l}</button>`).join("")}</div>
     <p class="hint">System follows your device's light or dark setting.</p>
     <h3>Backup</h3>
-    <p class="hint">${Store.mode==="db" ? "Your decks and progress are saved to your Claude account and follow you to other devices." : "Your decks and progress are saved in this browser only."} Download a backup to move your progress to another copy of this app, or restore one here. Restoring replaces the decks and progress on this page.</p>
+    <p class="hint">Your decks and progress are saved in this browser only. Download a backup to move your progress to another copy of this app, or restore one here. Restoring replaces the decks and progress on this page.</p>
     <div class="row"><button class="btn" data-act="bexport">Download backup</button><label class="btn">Restore from backup<input type="file" id="bfile" accept=".json,application/json" hidden></label></div>`;
   const bf = $("#bfile");
   bf.onchange = async () => {
@@ -1022,9 +995,6 @@ function renderDecks(){
 async function exportBackup(){
   const json = JSON.stringify({app:"tingxie", version:2, exported:new Date().toISOString(), meta:S.meta, decks:S.decks, prog:S.prog});
   const filename = `tingxie-backup-${todayKey()}.json`;
-  let dl = null;
-  try { if (window.claude && window.claude.use) dl = await window.claude.use("downloads"); } catch (e) {}
-  if (dl) { try { await dl.save({filename, data:json}); } catch (e) { if (e && e.code !== "cancelled") toast("Couldn’t save the backup."); } return; }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([json], {type:"application/json"})); a.download = filename;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
