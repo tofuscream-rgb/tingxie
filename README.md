@@ -52,6 +52,8 @@ Upload a `.csv`, `.tsv`, `.xlsx`, or `.xls` file with these columns:
 3. Tick the lessons you want. Each one's text appears in an editable box: compare it with your book and fix any missing characters (some PDFs leave characters out of their text).
 4. Save. The lessons are added to the current deck with pinyin, marked **auto-scanned** in Reading, and words that match your flashcards show their meanings.
 
+The character table at the back of the book (识字表/写字表) is never offered as a reading. Instead, the app reads it to tell you which lessons hold the deck's characters, and marks those lessons **in character table**. Wrapped lines are joined back into paragraphs, and poems and word lists keep one line each.
+
 It works with PDFs that contain real text, not scanned photos of pages, and needs an internet connection to load the PDF reader.
 
 ### Passages

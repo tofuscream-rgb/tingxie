@@ -1006,11 +1006,12 @@ async function pdfLines(page){
     const ln = lines.find(l => Math.abs(l.y - it.y) < Math.min(l.h, it.h) * 0.4);
     if (ln) { ln.items.push(it); ln.h = Math.max(ln.h, it.h); } else lines.push({y:it.y, h:it.h, items:[it]});
   }
-  return {height:vp.height, lines: lines.sort((a, b) => b.y - a.y).map(l => {
+  return {height:vp.height, width:vp.width, lines: lines.sort((a, b) => b.y - a.y).map(l => {
     l.items.sort((a, b) => a.x - b.x);
     let text = "";
     l.items.forEach((it, i) => { const prev = l.items[i - 1]; if (prev && it.x - (prev.x + prev.w) > l.h * 0.6) text += " "; text += it.s; });
-    return {y:l.y, x:l.items[0].x, h:l.h, text:text.replace(/\s+/g, " ").trim()};
+    const end = l.items[l.items.length - 1];
+    return {y:l.y, x:l.items[0].x, r:end.x + end.w, h:l.h, text:text.replace(/\s+/g, " ").trim()};
   })};
 }
 async function scanPdf(file){
@@ -1035,7 +1036,10 @@ async function scanPdf(file){
   for (const pg of pages) {
     pg.printed = offset !== undefined && pg.n - offset >= 1 ? pg.n - offset : null;
     pg.kept = pg.lines.filter(l => hasHan(l.text) && !isFurniture(l.text));
-    pg.found = new Set([...pg.kept.map(l => l.text).join("")].filter(ch => deckChars.has(ch)));
+    // A character table (识字表/写字表) is lots of characters with almost no punctuation; it's not a reading
+    const txt = pg.kept.map(l => l.text).join(""), han = [...txt].filter(ch => hasHan(ch)).length;
+    pg.table = han >= 40 && (txt.match(/[，。！？；：“”]/g) || []).length <= han * 0.02;
+    pg.found = pg.table ? new Set() : new Set([...txt].filter(ch => deckChars.has(ch)));
     // Lesson start: a bare number near the top (not the page number) followed by a Chinese title line
     const ordered = pg.lines.filter(l => !isFurniture(l.text) && (bareNum(l.text) || hasHan(l.text)));
     const i = ordered.findIndex(l => bareNum(l.text) && +l.text >= 1 && +l.text !== pg.printed && l.y > pg.height * 0.55);
@@ -1056,24 +1060,47 @@ async function scanPdf(file){
     else cur.pages.push(pg);
   });
   const allFound = new Set(pages.flatMap(pg => [...pg.found]));
+  const inTable = tableLessons(pages.filter(pg => pg.table), deckChars);
   const lessons = groups.map((g, k) => {
     const st = g.pages[0].start || {num:null, title:""}, first = g.pages[0], last = g.pages[g.pages.length - 1];
     const found = [...deckChars].filter(ch => g.pages.some(pg => pg.found.has(ch)));
     const range = first.printed ? (first === last ? `${first.printed}` : `${first.printed}–${last.printed}`) : "";
-    return {k, num:st.num, title:st.title, pages:range, pdfPages: first === last ? `${first.n}` : `${first.n}–${last.n}`, found, text:pagesText(g.pages), sel:false};
+    const listed = inTable.some(t => t === String(st.num) || st.title && st.title.startsWith(t));
+    return {k, num:st.num, title:st.title, pages:range, pdfPages: first === last ? `${first.n}` : `${first.n}–${last.n}`, found, text:pagesText(g.pages), sel:false, listed};
   });
-  return {name:file.name, lessons, missing:[...deckChars].filter(ch => !allFound.has(ch))};
+  // Lessons the character table names come first
+  lessons.sort((a, b) => b.listed - a.listed || a.k - b.k);
+  return {name:file.name, lessons, inTable, missing:[...deckChars].filter(ch => !allFound.has(ch))};
 }
-// Join a lesson's lines into paragraphs: an indented line starts a new paragraph; pages with no indents keep one line each (poems, word lists)
+// Character table rows look like "13 要腰阴沉…" or "语文园地六 棍豆汤…". Returns the row labels that hold
+// several of the deck's characters, in table order.
+function tableLessons(tables, deckChars){
+  const out = [];
+  for (const pg of tables) {
+    const txt = pg.kept.map(l => l.text).join(" ").replace(/识字|阅读|课文|写字表|识字表/g, " ").replace(/\s+/g, "");
+    for (const m of txt.matchAll(/(\d{1,2}|语文园地[一二三四五六七八九十]+)([^\d语]+)/gu)) {
+      const chars = [...m[2]].filter(ch => hasHan(ch)), hit = chars.filter(ch => deckChars.has(ch)).length;
+      if (hit >= 3 && hit >= chars.length / 2 && !out.includes(m[1])) out.push(m[1]);
+    }
+  }
+  return out;
+}
+// Join a lesson's lines into paragraphs. Wrapped lines are joined back together. A new paragraph starts at an
+// indented line, after a line that ends a sentence and stops short of the margin, and for lines without
+// punctuation (titles, word lists). Narrow pages (poems) keep one line each.
+const PUNCT = /[，。！？；：、“”…]/, SENTENCE_END = /[。！？…”」：]$/;
 function pagesText(pages){
   const paras = [];
   for (const pg of pages) {
-    if (!pg.kept.length) continue;
-    const left = Math.min(...pg.kept.map(l => l.x)), indented = l => l.x - left > l.h * 1.2;
-    const anyIndent = pg.kept.some(indented);
-    pg.kept.forEach((l, i) => {
-      if (!anyIndent || indented(l) || !paras.length || i === 0 && /[。！？”…]$/.test(paras[paras.length - 1])) paras.push(l.text);
-      else paras[paras.length - 1] += l.text;
+    const ls = pg.kept; if (!ls.length) continue;
+    const left = Math.min(...ls.map(l => l.x)), right = Math.max(...ls.map(l => l.r)), poem = right - left < pg.width * 0.45;
+    ls.forEach((l, i) => {
+      const prev = ls[i - 1], last = paras[paras.length - 1];
+      const newPara = !paras.length || poem
+        || l.x - left > l.h * 1.2                                         // indented
+        || !PUNCT.test(l.text) || !PUNCT.test(prev ? prev.text : last)    // title or list line
+        || SENTENCE_END.test(prev ? prev.text : last) && (!prev || prev.r < right - l.h * 1.5);   // a sentence ended before the margin, or at the end of the last page
+      if (newPara) paras.push(l.text); else paras[paras.length - 1] += l.text;
     });
   }
   return paras.join("\n\n");
@@ -1127,16 +1154,17 @@ function scanHTML(){
   return `<div class="panel" style="margin-top:12px">
     <h2 style="font-size:19px">${F.lessons.length ? `Found ${F.lessons.length} possible lesson${F.lessons.length === 1 ? "" : "s"}` : "No lessons matched this deck"}</h2>
     <p class="hint" style="margin-top:0">In ${esc(F.name)}, for “${esc(deck.name)}”. Tick the lessons to save.</p>
+    ${F.inTable.length ? `<p class="hint">The textbook’s character table lists this deck’s characters under: <b>${F.inTable.map(t => /^\d/.test(t) ? `Lesson ${t}` : `<span class="han">${esc(t)}</span>`).join(", ")}</b>.</p>` : ""}
     ${F.lessons.map(l => `<div class="scan">
       <label class="row" style="align-items:flex-start;gap:10px"><input type="checkbox" data-fsel="${l.k}" ${l.sel ? "checked" : ""} style="margin-top:5px">
         <span><b>${l.num ? `Lesson ${l.num} · ` : ""}<span class="han">${esc(l.title || "Untitled")}</span></b>
-        <span class="hint"> · ${l.pages ? `pages ${esc(l.pages)}` : `PDF pages ${esc(l.pdfPages)}`}</span><br>
+        <span class="hint"> · ${l.pages ? `pages ${esc(l.pages)}` : `PDF pages ${esc(l.pdfPages)}`}</span>${l.listed ? ` <span class="pill m">in character table</span>` : ""}<br>
         <span class="hint">${l.found.length} deck character${l.found.length === 1 ? "" : "s"}: </span>${chars(l.found)}</span></label>
       ${l.sel ? `<div class="field" style="margin:8px 0 0"><label>Title</label><input data-ftitle="${l.k}" value="${esc(l.title)}"></div>
         <textarea class="han scantext" data-ftext="${l.k}" rows="${Math.min(14, Math.max(5, l.text.split("\n").length + 1))}" aria-label="Passage text">${esc(l.text)}</textarea>
         <p class="hint" style="margin:4px 0 0">Some characters may be missing from the PDF’s text. Compare with your book and fix any gaps before saving.</p>` : ""}
     </div>`).join("")}
-    ${F.missing.length ? `<p class="hint">Not found anywhere in this PDF: ${chars(F.missing)}</p>` : `<p class="hint">Every deck character was found in this PDF.</p>`}
+    ${F.missing.length ? `<p class="hint">Not found in any reading in this PDF: ${chars(F.missing)}</p>` : `<p class="hint">Every deck character was found in the readings.</p>`}
     <div class="row">${sel ? `<button class="btn primary" data-act="fsave">Save ${sel} reading${sel === 1 ? "" : "s"} to “${esc(deck.name)}”</button>` : ""}<button class="btn" data-act="fcancel">${sel ? "Cancel" : "Close"}</button></div>
   </div>`;
 }
