@@ -43,6 +43,18 @@ Upload a `.csv`, `.tsv`, `.xlsx`, or `.xls` file with these columns:
 - If there's no header row, columns are read in the order shown above.
 - Saving a CSV from Excel? Choose **CSV UTF-8** so the Chinese characters survive.
 
+### Page view: read the real textbook pages
+
+In **Reading**, **Link textbook PDF** lets you read each lesson on the real textbook pages instead of as plain text.
+
+- The PDF is kept on this device only (in the browser's IndexedDB storage) and remembered next time. It isn't uploaded, and it isn't part of backups. **Unlink** removes it from the device.
+- Switch between **Text view** and **Page view** at the top of Reading. Page view appears once a textbook is linked.
+- The app finds each lesson's pages by matching their text, then puts an invisible tap target over every word: tap one to open the usual word panel (pinyin, meaning, audio, stroke order, deck card).
+- **Underline deck words** highlights deck words on the page, and turning **Pinyin** off covers the book's printed pinyin.
+- Pages are drawn as you scroll, sharp on high-resolution screens, and you can pinch to zoom.
+
+It needs a PDF with real text (not scanned photos) and an internet connection to load the PDF reader. Some browsers, Safari in particular, may clear a site's stored files after a few weeks without visits; just link the PDF again if that happens.
+
 ### Find readings in a textbook PDF
 
 **Decks → Find readings in textbook** looks through your textbook PDF for the lessons that use the current deck's characters.

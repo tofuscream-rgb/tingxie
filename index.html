@@ -215,6 +215,16 @@ h3{margin:22px 0 10px;font-size:18px}
 .tk.on{background:var(--jade-soft);outline:1.5px solid var(--jade)}
 .para .pp{width:28px;height:28px;vertical-align:middle;margin-right:6px}
 .para .pp svg{width:13px;height:13px}
+.pv{display:flex;flex-direction:column;gap:12px}
+.pvpage{position:relative;width:100%;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.pvpage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.pvcov,.pvtaps{position:absolute;inset:0}
+.pv:not(.nopy) .pvcov{display:none}
+.pvcov i{position:absolute;border-radius:2px}
+.pvtk{position:absolute;border-radius:3px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.pvtk:hover{background:rgba(34,112,95,.12)}
+.pv.hl .pvtk.v{background:rgba(34,112,95,.2)}
+.pvtk.on,.pv.hl .pvtk.v.on{background:rgba(34,112,95,.3);outline:2px solid var(--jade)}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:15;background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(0,0,0,.14);padding:14px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:55vh;overflow:auto}
 .sheet-in{max-width:880px;margin:0 auto;display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
 .sgrow{flex:1;min-width:220px;display:flex;flex-direction:column;gap:8px}
@@ -307,7 +317,7 @@ const Store = {
 };
 
 /* ---------- state ---------- */
-const DEFAULTS = {newPerDay:15, rate:0.8, retention:0.9, sessKind:"srs", sessSize:20, theme:"auto", voice:""};
+const DEFAULTS = {newPerDay:15, rate:0.8, retention:0.9, sessKind:"srs", sessSize:20, theme:"auto", voice:"", readView:"text"};
 const S = {
   meta: null,           // {decks:[{id,name}], current, settings}
   decks: {},            // id -> {name, cards, nextId}
@@ -348,6 +358,7 @@ async function boot(){
   renderDeckSel();
   resetSession();
   render();
+  Book.init();
 }
 
 /* ---------- speech ---------- */
@@ -892,7 +903,13 @@ function renderReading(){
         ? `<span class="pu">${esc(t[0])}</span>`
         : `<span class="tk ${isV(t[0]) ? "v" : ""} ${R.sel && R.sel.key === `${pi}:${ri}:${ti}` ? "on" : ""}" data-tk="${pi}:${ri}:${ti}" role="button" tabindex="0" aria-label="${esc(t[0])}">${rubyHTML(t[0], t[1])}</span>`).join("")}</p>`).join("")}
   </section>`).join("");
+  const pageView = !!Book.info && set.readView === "page";
   app.innerHTML = `<div id="notice">${noticeHTML()}</div>
+    <div class="rbar">
+      ${Book.info ? `<div class="seg" role="group" aria-label="View"><button type="button" data-rview="text" aria-pressed="${!pageView}">Text view</button><button type="button" data-rview="page" aria-pressed="${pageView}">Page view</button></div>
+        <span class="pill m" title="${esc(Book.info.name)}">Textbook linked</span><button class="linkish" data-act="bunlink">${D.confirm === "book" ? "Tap again to unlink" : "Unlink"}</button>`
+      : `<label class="btn">Link textbook PDF<input type="file" id="bookfile" accept=".pdf,application/pdf" hidden></label>`}
+    </div>
     <div class="rbar">
       <div class="seg" role="group" aria-label="Lesson">${lessons.map(l => `<button type="button" data-rl="${esc(l.id)}" aria-pressed="${l.id === L.id}">${l.num ? `Lesson ${l.num}` : esc(l.title)}</button>`).join("")}</div>
       <label class="tog"><input type="checkbox" data-tog="readPy" ${set.readPy === false ? "" : "checked"}>Pinyin</label>
@@ -902,8 +919,24 @@ function renderReading(){
     </div>
     <p class="hint" style="margin:0 0 6px"><span class="han" style="font-size:18px;color:var(--ink)">${esc(L.title)}</span>${L.pages ? `, textbook pages ${esc(L.pages)}` : ""}. Tap any word for its meaning.${L.scanned ? ` <span class="pill" title="Found by scanning a textbook PDF">auto-scanned</span>` : ""}</p>
     ${vocab.length ? `<div class="chips"><span class="hint">Deck words in this lesson:</span>${vocab.map(c => `<button type="button" class="chip han" data-card="${c.id}">${esc(c.w)}</button>`).join("")}</div>` : ""}
-    <div class="read ${set.readPy === false ? "nopy" : ""} ${set.readHl === false ? "" : "hl"}">${pass}</div>
+    ${pageView ? pageViewHTML(L, set) : `<div class="read ${set.readPy === false ? "nopy" : ""} ${set.readHl === false ? "" : "hl"}">${pass}</div>`}
     ${sheetHTML()}`;
+  if (pageView) Book.mount(L, isV);
+  const bf = $("#bookfile");
+  if (bf) bf.onchange = async () => {
+    const file = bf.files[0]; bf.value = ""; if (!file) return;
+    toast("Linking your textbook…");
+    try { await Book.link(file); S.meta.settings.readView = "page"; saveMeta(); toast("Textbook linked. It stays on this device."); }
+    catch (e) { toast(e.message || "Couldn’t link that PDF."); }
+    if (S.tab === "reading") render();
+  };
+}
+function pageViewHTML(L, set){
+  const pv = Book.map[L.id];
+  if (!pv) { Book.prepare(L); return `<div class="panel"><p class="hint" id="pvstatus" style="margin:0">${esc(Book.status || "Opening your textbook…")}</p></div>`; }
+  if (pv.error) return `<div class="panel"><p class="hint" style="margin:0">${esc(pv.error)}</p></div>`;
+  if (!pv.pages.length) return `<div class="panel"><p class="hint" style="margin:0">This lesson’s pages weren’t found in the linked textbook. Text view still works.</p></div>`;
+  return `<div class="pv ${set.readPy === false ? "nopy" : ""} ${set.readHl === false ? "" : "hl"}">${pv.pages.map(n => `<div data-pvpage="${n}"></div>`).join("")}</div>`;
 }
 
 /* ---------- decks ---------- */
@@ -1041,11 +1074,15 @@ async function scanPdf(file){
     pg.table = han >= 40 && (txt.match(/[，。！？；：“”]/g) || []).length <= han * 0.02;
     pg.found = pg.table ? new Set() : new Set([...txt].filter(ch => deckChars.has(ch)));
     // Lesson start: a bare number near the top (not the page number) followed by a Chinese title line
+    // or a number beside the title on the same line ("10 古诗二首")
     const ordered = pg.lines.filter(l => !isFurniture(l.text) && (bareNum(l.text) || hasHan(l.text)));
-    const i = ordered.findIndex(l => bareNum(l.text) && +l.text >= 1 && +l.text !== pg.printed && l.y > pg.height * 0.55);
-    if (i >= 0 && ordered[i + 1] && hasHan(ordered[i + 1].text)) pg.start = {num:+ordered[i].text, title:ordered[i + 1].text};
-    else { const t = pg.kept.slice(0, 3).find(l => /^(语文园地|快乐读书吧|口语交际)/.test(l.text)); if (t) pg.start = {num:null, title:t.text}; }
-    if (pg.start) pg.kept = pg.kept.filter(l => l.text !== pg.start.title);
+    const cleanTitle = t => t.replace(/[\s\u2460-\u2473]+/g, "");
+    const top = l => l.y > pg.height * 0.55, i = ordered.findIndex(l => bareNum(l.text) && +l.text >= 1 && +l.text !== pg.printed && top(l));
+    const beside = ordered.find(l => top(l) && /^\d{1,2}\s*\p{Script=Han}/u.test(l.text) && +l.text.match(/^\d+/)[0] !== pg.printed);
+    if (i >= 0 && ordered[i + 1] && hasHan(ordered[i + 1].text)) pg.start = {num:+ordered[i].text, title:cleanTitle(ordered[i + 1].text), line:ordered[i + 1]};
+    else if (beside) pg.start = {num:+beside.text.match(/^\d+/)[0], title:cleanTitle(beside.text.replace(/^\d+/, "")), line:beside};
+    else { const t = pg.kept.slice(0, 3).find(l => /^(语文园地|快乐读书吧|口语交际)/.test(l.text)); if (t) pg.start = {num:null, title:cleanTitle(t.text), line:t}; }
+    if (pg.start) pg.kept = pg.kept.filter(l => l !== pg.start.line);
   }
   // Group consecutive high-scoring pages (plus a lesson's trailing pages), starting a new lesson wherever one begins
   const best = Math.max(...pages.map(pg => pg.found.size)), cut = Math.max(2, Math.ceil(best * 0.2));
@@ -1122,6 +1159,212 @@ async function saveScanned(){
   toast(`Saved ${made.length} reading${made.length === 1 ? "" : "s"} to “${deck.name}”.`);
   S.tab = "reading"; render(); window.scrollTo(0, 0);
 }
+
+/* ---------- page view: the real textbook pages with tappable words ----------
+   The linked PDF stays on this device in IndexedDB (too big for localStorage) and is drawn with PDF.js. Each
+   lesson's characters are matched to the characters on its pages, and invisible tap targets go on top. */
+const Files = {
+  db: null,
+  open(){ return this.db ||= new Promise((ok, fail) => { const r = indexedDB.open("tingxie-files", 1); r.onupgradeneeded = () => r.result.createObjectStore("files"); r.onsuccess = () => ok(r.result); r.onerror = () => fail(r.error); }); },
+  async run(mode, fn){
+    const db = await this.open();
+    return new Promise((ok, fail) => { const tx = db.transaction("files", mode), rq = fn(tx.objectStore("files")); tx.oncomplete = () => ok(rq.result); tx.onerror = tx.onabort = () => fail(tx.error); });
+  },
+  get(k){ return this.run("readonly", st => st.get(k)); },
+  set(k, v){ return this.run("readwrite", st => st.put(v, k)); },
+  del(k){ return this.run("readwrite", st => st.delete(k)); }
+};
+const CJK_PUNCT = /[，。！？；：、“”‘’（）《》「」…—·]/;
+const Book = {
+  info:null, doc:null, pages:[], map:{}, els:new Map(), preparing:null, status:"", observer:null,
+  async init(){
+    try { this.info = (await Files.get("textbook-info")) || null; } catch (e) { this.info = null; }
+    if (S.tab === "reading" && this.info) render();
+  },
+  reset(){ try { this.doc && this.doc.destroy(); } catch (e) {} this.doc = null; this.pages = []; this.map = {}; this.els.clear(); this.preparing = null; },
+  async link(file){
+    const lib = await loadPdfjs();
+    let doc;
+    try { doc = await lib.getDocument({data: new Uint8Array(await file.arrayBuffer()), cMapUrl: PDFJS_CMAPS, cMapPacked: true, isEvalSupported: false}).promise; }
+    catch (e) { throw new Error("That file couldn’t be opened as a PDF."); }
+    const info = {name:file.name, size:file.size, pages:doc.numPages};
+    try { await Files.set("textbook", file); await Files.set("textbook-info", info); }
+    catch (e) { doc.destroy(); throw new Error("Couldn’t keep the PDF on this device. The browser may be out of storage space, or in private browsing."); }
+    navigator.storage?.persist?.().catch(() => {});   // ask the browser not to clear it when space runs low
+    this.reset(); this.doc = doc; this.info = info;
+  },
+  async unlink(){ this.reset(); this.info = null; try { await Files.del("textbook"); await Files.del("textbook-info"); } catch (e) {} },
+  async load(){
+    if (this.doc) return this.doc;
+    const blob = await Files.get("textbook");
+    if (!blob) { this.info = null; throw new Error("The linked textbook is no longer on this device. Link it again."); }
+    const lib = await loadPdfjs();
+    return this.doc = await lib.getDocument({data: new Uint8Array(await blob.arrayBuffer()), cMapUrl: PDFJS_CMAPS, cMapPacked: true, isEvalSupported: false}).promise;
+  },
+  // One page's characters in reading order, each with its position, plus the pinyin items above them
+  async page(n){
+    if (this.pages[n]) return this.pages[n];
+    const pg = await this.doc.getPage(n), vp = pg.getViewport({scale:1}), tc = await pg.getTextContent();
+    const items = tc.items.filter(it => it.str && it.str.trim()).map(it => ({s:it.str, x:it.transform[4], y:it.transform[5], size:Math.hypot(it.transform[2], it.transform[3]) || it.height || 10, w:it.width}));
+    const han = items.filter(it => hasHan(it.s));
+    // Pinyin is drawn in a custom font, so it reads as plain letters ("xiAo bWi") sitting just above Chinese characters
+    const pinyin = items.filter(it => /^[A-Za-z][A-Za-z ]*$/.test(it.s) && han.some(h => {
+      const dy = it.y - h.y; return dy > h.size * 0.45 && dy < h.size * 1.7 && it.x < h.x + h.w + h.size * 0.5 && it.x + it.w > h.x - h.size * 0.5;
+    }));
+    const chars = [];
+    for (const it of items) {
+      if (pinyin.includes(it) || !(hasHan(it.s) || CJK_PUNCT.test(it.s))) continue;
+      const cs = [...it.s], full = cs.filter(c => c.trim()).length, gaps = cs.length - full;
+      // Chinese characters are one em wide; any spaces share what's left
+      let adv = it.w / cs.length, gap = adv;
+      if (gaps) { const g = (it.w - full * it.size) / gaps; if (g >= 0) { adv = it.size; gap = g; } } else adv = it.w / full;
+      let x = it.x;
+      for (const c of cs) { if (!c.trim()) { x += gap; continue; } if (hasHan(c) || CJK_PUNCT.test(c)) chars.push({c, x, y:it.y, size:it.size, w:adv, n}); x += adv; }
+    }
+    const lines = [];
+    for (const ch of chars.sort((a, b) => b.y - a.y || a.x - b.x)) {
+      const ln = lines.find(l => Math.abs(l.y - ch.y) < Math.min(l.size, ch.size) * 0.3);
+      if (ln) ln.chars.push(ch); else lines.push({y:ch.y, size:ch.size, chars:[ch]});
+    }
+    lines.sort((a, b) => b.y - a.y).forEach(l => l.chars.sort((a, b) => a.x - b.x));
+    return this.pages[n] = {n, vp, chars:lines.flatMap(l => l.chars), pinyin};
+  },
+  // Percent box on the page for a rectangle in PDF units
+  pct(P, x1, y1, x2, y2){
+    const [a, b, c, d] = P.vp.convertToViewportRectangle([x1, y1, x2, y2]), W = P.vp.width, H = P.vp.height;
+    return {l:Math.min(a, c) / W * 100, t:Math.min(b, d) / H * 100, w:Math.abs(c - a) / W * 100, h:Math.abs(d - b) / H * 100};
+  },
+  prepare(L){
+    if (this.preparing === L.id) return;
+    this.preparing = L.id; this.status = "Opening your textbook…";
+    const say = t => { this.status = t; const el = $("#pvstatus"); if (el) el.textContent = t; };
+    (async () => {
+      try {
+        const doc = await this.load();
+        for (let n = 1; n <= doc.numPages; n++) { if (!this.pages[n]) say(`Finding this lesson in your textbook… page ${n} of ${doc.numPages}`); await this.page(n); }
+        this.map[L.id] = this.match(L, doc.numPages);
+      } catch (e) { this.map[L.id] = {error: e.message || "Couldn’t open the linked textbook."}; }
+      this.preparing = null;
+      if (S.tab === "reading" && curLesson() && curLesson().id === L.id) render();
+    })();
+  },
+  // Which pages hold this lesson, and where each of its words sits on them
+  match(L, total){
+    const seq = [];   // the lesson's characters in order, with the token each belongs to
+    L.passages.forEach((p, pi) => p.paras.forEach((para, ri) => para.forEach((t, ti) => {
+      for (const c of t[0]) if (c.trim()) seq.push({c, key:`${pi}:${ri}:${ti}`, word:t.length === 3});
+    })));
+    const bigrams = str => { const out = []; for (let i = 0; i + 1 < str.length; i++) out.push(str.slice(i, i + 2)); return out; };
+    const lessonPairs = new Set(L.passages.flatMap(p => [p.title, ...p.paras.map(paraText)]).flatMap(t => bigrams([...t].filter(hasHan).join(""))));
+    const score = [];
+    for (let n = 1; n <= total; n++) {
+      const pairs = bigrams(this.pages[n].chars.filter(ch => hasHan(ch.c)).map(ch => ch.c).join("")), hits = pairs.filter(b => lessonPairs.has(b)).length;
+      score[n] = hits >= 4 && hits >= pairs.length * 0.25 ? hits : 0;
+    }
+    let best = 0; for (let n = 1; n <= total; n++) if (score[n] > (score[best] || 0)) best = n;
+    if (!best) return {pages:[]};
+    let a = best, b = best; while (score[a - 1]) a--; while (score[b + 1]) b++;
+    const pages = []; for (let n = a; n <= b; n++) pages.push(n);
+    // Align the lesson's characters to the pages' characters in reading order (longest common subsequence,
+    // taking the earliest match so a sentence repeated in the exercises doesn't steal the lesson's words)
+    const P = pages.flatMap(n => this.pages[n].chars), nL = seq.length, nP = P.length, W = nP + 1;
+    const dp = new Uint32Array((nL + 1) * W), wt = c => hasHan(c) ? 2 : 1;
+    for (let i = nL - 1; i >= 0; i--) for (let j = nP - 1; j >= 0; j--) {
+      const m = seq[i].c === P[j].c ? wt(seq[i].c) + dp[(i + 1) * W + j + 1] : 0;
+      dp[i * W + j] = Math.max(m, dp[(i + 1) * W + j], dp[i * W + j + 1]);
+    }
+    const at = new Array(nL).fill(null);
+    for (let i = 0, j = 0; i < nL && j < nP;) {
+      if (seq[i].c === P[j].c && dp[i * W + j] === wt(seq[i].c) + dp[(i + 1) * W + j + 1]) { at[i] = P[j]; i++; j++; }
+      else if (dp[i * W + j + 1] === dp[i * W + j]) j++; else i++;
+    }
+    // A character missing from the PDF's text: estimate its box from its neighbours on the same line
+    at.forEach((m, i) => {
+      if (m || !hasHan(seq[i].c)) return;
+      let j = i - 1; while (j >= 0 && !at[j]) j--;
+      let k = i + 1; while (k < nL && !at[k]) k++;
+      const prev = at[j], next = at[k], same = (u, v) => u && v && u.n === v.n && Math.abs(u.y - v.y) < u.size * 0.3;
+      if (same(prev, next)) at[i] = Object.assign({}, prev, {x: prev.x + (next.x - prev.x) * (i - j) / (k - j), est:true});
+      else if (prev && i - j <= 3) at[i] = Object.assign({}, prev, {x: prev.x + prev.w * (i - j), est:true});
+      else if (next && k - i <= 3) at[i] = Object.assign({}, next, {x: next.x - next.w * (k - i), est:true});
+    });
+    // One box per word per line it sits on
+    const boxes = {}, covers = {};
+    for (const n of pages) { boxes[n] = []; const Pg = this.pages[n]; covers[n] = Pg.pinyin.map(it => this.pct(Pg, it.x - it.size * 0.15, it.y - it.size * 0.26, it.x + it.w + it.size * 0.15, it.y + it.size * 1.15)); }
+    let cur = null;
+    seq.forEach((s, i) => {
+      const ch = at[i];
+      if (!s.word || !ch) { if (!s.word) cur = null; return; }
+      if (cur && cur.key === s.key && cur.n === ch.n && Math.abs(cur.y - ch.y) < ch.size * 0.3) { cur.x2 = Math.max(cur.x2, ch.x + ch.w); cur.x1 = Math.min(cur.x1, ch.x); return; }
+      cur = {key:s.key, n:ch.n, y:ch.y, size:ch.size, x1:ch.x, x2:ch.x + ch.w};
+      boxes[ch.n].push(cur);
+    });
+    for (const n of pages) boxes[n] = boxes[n].map(b => Object.assign(this.pct(this.pages[n], b.x1, b.y - b.size * 0.16, b.x2, b.y + b.size * 0.9), {key:b.key}));
+    const found = at.filter(Boolean).length;
+    return {pages, boxes, covers, found, total:seq.filter(s => hasHan(s.c)).length};
+  },
+  // Put each page in its slot, reusing pages already drawn; draw new ones as they scroll near the screen
+  mount(L, isV){
+    const pv = this.map[L.id]; if (!pv || !pv.pages) return;
+    if (this.observer) this.observer.disconnect();
+    for (const k of [...this.els.keys()]) if (!k.startsWith(L.id + ":")) this.els.delete(k);
+    this.observer = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) this.draw(e.target); }), {rootMargin:"600px 0px"}) : null;
+    document.querySelectorAll("[data-pvpage]").forEach(slot => {
+      const n = +slot.dataset.pvpage, key = `${L.id}:${n}`;
+      let el = this.els.get(key);
+      if (!el) {
+        el = document.createElement("div"); el.className = "pvpage"; el.dataset.n = n;
+        const box = b => `left:${b.l}%;top:${b.t}%;width:${b.w}%;height:${b.h}%`;
+        el.innerHTML = `<canvas></canvas><div class="pvcov">${pv.covers[n].map(c => `<i style="${box(c)}"></i>`).join("")}</div>
+          <div class="pvtaps">${pv.boxes[n].map(b => { const [pi, ri, ti] = b.key.split(":").map(Number), t = L.passages[pi].paras[ri][ti];
+            return `<span class="pvtk ${isV(t[0]) ? "v" : ""}" data-tk="${b.key}" role="button" tabindex="0" aria-label="${esc(t[0])}" style="${box(b)}"></span>`; }).join("")}</div>`;
+        this.els.set(key, el);
+      }
+      el.style.aspectRatio = `${this.pages[n].vp.width} / ${this.pages[n].vp.height}`;
+      slot.replaceWith(el);
+      el.querySelectorAll("[data-tk]").forEach(t => t.classList.toggle("on", !!R.sel && R.sel.key === t.dataset.tk));
+      if (!el.drawnW) this.observer ? this.observer.observe(el) : this.draw(el);
+    });
+  },
+  async draw(el){
+    const n = +el.dataset.n, cssW = el.clientWidth; if (!cssW || el.drawing || el.drawnW === cssW) return;
+    el.drawing = true;
+    try {
+      const page = await this.doc.getPage(n), base = page.getViewport({scale:1});
+      const dpr = Math.min(window.devicePixelRatio || 1, 3), vp = page.getViewport({scale: cssW * dpr / base.width});
+      const cv = document.createElement("canvas"); cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+      const ctx = cv.getContext("2d", {willReadFrequently:true});
+      await page.render({canvasContext:ctx, viewport:vp}).promise;
+      el.querySelector("canvas").replaceWith(cv); el.drawnW = cssW;
+      // Fill each pinyin cover with the average colour of the page just around it, so it blends in. The ring's
+      // upper and lower halves are averaged separately and blended top to bottom, to follow gradients and pictures.
+      const covs = el.querySelectorAll(".pvcov i");
+      if (covs.length) {
+        const d = ctx.getImageData(0, 0, cv.width, cv.height).data, pad = Math.max(2, Math.round(dpr * 2));
+        covs.forEach(i => {
+          const x = parseFloat(i.style.left) / 100 * cv.width, y = parseFloat(i.style.top) / 100 * cv.height;
+          const w = parseFloat(i.style.width) / 100 * cv.width, h = parseFloat(i.style.height) / 100 * cv.height;
+          const X = Math.max(0, Math.floor(x - pad)), Y = Math.max(0, Math.floor(y - pad));
+          const X2 = Math.min(cv.width, Math.ceil(x + w + pad)), Y2 = Math.min(cv.height, Math.ceil(y + h + pad));
+          const sum = [[0, 0, 0, 0], [0, 0, 0, 0]], mid = y + h / 2;
+          for (let py = Y; py < Y2; py++) for (let px = X; px < X2; px++) {
+            if (px >= x && px < x + w && py >= y && py < y + h) continue;   // only the ring outside the pinyin
+            const o = (py * cv.width + px) * 4, a = sum[py < mid ? 0 : 1]; a[0] += d[o]; a[1] += d[o + 1]; a[2] += d[o + 2]; a[3]++;
+          }
+          const col = a => a[3] ? `rgb(${Math.round(a[0] / a[3])},${Math.round(a[1] / a[3])},${Math.round(a[2] / a[3])})` : null;
+          const top = col(sum[0]) || col(sum[1]), bot = col(sum[1]) || top;
+          if (top) i.style.background = top === bot ? top : `linear-gradient(${top},${bot})`;
+        });
+      }
+    } catch (e) { console.warn("page draw failed", e); }
+    el.drawing = false;
+  },
+  redrawVisible(){
+    for (const el of this.els.values()) if (el.isConnected && el.drawnW && Math.abs(el.clientWidth - el.drawnW) > el.drawnW * 0.15) { el.drawnW = 0; if (this.observer) { this.observer.unobserve(el); this.observer.observe(el); } else this.draw(el); }
+  }
+};
+let resizeT;
+window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => Book.redrawVisible(), 300); });
 
 async function readFile(file){
   if (/\.json$/i.test(file.name)) {
@@ -1277,6 +1520,7 @@ document.addEventListener("click", e => {
   if (ds.q) { const [k, v] = ds.q.split(":"); Q[k] = (k === "n" && v !== "all") ? +v : v; return render(); }
   if (ds.tk) { const [pi, ri, ti] = ds.tk.split(":").map(Number); const t = curLesson().passages[pi].paras[ri][ti]; R.sel = {key:ds.tk, w:t[0], p:t[1], m:t[2]}; render(); return TTS.speak(t[0]); }
   if (ds.card) { const c = curDeck().cards.find(x => x.id === ds.card); if (c) { R.sel = {key:"c"+c.id, w:c.w, p:c.p, m:""}; render(); TTS.speak(c.w); } return; }
+  if (ds.rview) { S.meta.settings.readView = ds.rview; saveMeta(); return render(); }
   if (ds.rl) { R.lesson = ds.rl; R.sel = null; D.confirm = null; render(); return window.scrollTo(0, 0); }
   if (ds.rp) { const [pi, ri] = ds.rp.split(":").map(Number); return TTS.speak(paraText(curLesson().passages[pi].paras[ri])); }
   if (ds.themeSet) { S.meta.settings.theme = ds.themeSet; saveMeta(); applyTheme(); return render(); }
@@ -1318,6 +1562,9 @@ document.addEventListener("click", e => {
     case "qretry": { const missed = Q.items.filter((_,i) => !(Q.res[i] && Q.res[i].ok)); return startQuiz(missed); }
     case "qsetup": Q.phase = "setup"; return render();
     case "rclose": R.sel = null; return render();
+    case "bunlink":
+      if (D.confirm !== "book") { D.confirm = "book"; return render(); }
+      D.confirm = null; return Book.unlink().then(() => { toast("Textbook unlinked and removed from this device."); render(); });
     case "strokes": return Strokes.open(ds.w);
     case "skclose": return Strokes.close();
     case "skplay": return Strokes.play();
