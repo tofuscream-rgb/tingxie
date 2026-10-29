@@ -876,7 +876,7 @@ function renderReading(){
   const app = $("#app"), deck = curDeck(), lessons = (deck && deck.lessons) || [];
   $("main").classList.toggle("has-sheet", !!R.sel && lessons.length > 0);
   if (!lessons.length) {
-    app.innerHTML = `<div class="panel empty"><h2>No textbook passages for this deck yet</h2><p>Import a lesson pack (.json) in Decks to read the matching passages from your textbook here, with pinyin and tap-to-look-up.</p><button class="btn primary" data-tab="decks">Go to Decks</button></div>`;
+    app.innerHTML = `<div class="panel empty"><h2>No textbook passages for this deck yet</h2><p>Import a passage or lesson pack (.json) in Decks to read it here, with pinyin and tap-to-look-up.</p><button class="btn primary" data-tab="decks">Go to Decks</button></div>`;
     return;
   }
   if (!curLesson()) R.lesson = lessons[0].id;
@@ -927,11 +927,64 @@ function parseRows(rows){
   }
   return out;
 }
+/* Plain passages: a JSON file holding only the Chinese text, such as {"passage": {"text_zh": "…"}}.
+   Words are split with the browser's Intl.Segmenter and pinyin comes from pinyin-pro (MIT licence),
+   downloaded from jsDelivr the first time a passage is imported. */
+const PINYIN_PRO = "https://cdn.jsdelivr.net/npm/pinyin-pro@3.29.4/dist/index.js";
+let pinyinLoading = null;
+function loadPinyin(){
+  if (window.pinyinPro) return Promise.resolve(window.pinyinPro);
+  return pinyinLoading ||= new Promise((ok, fail) => {
+    const sc = document.createElement("script"); sc.src = PINYIN_PRO;
+    sc.onload = () => window.pinyinPro ? ok(window.pinyinPro) : fail(new Error("bad"));
+    sc.onerror = () => fail(new Error("bad"));
+    document.head.appendChild(sc);
+  }).catch(() => { pinyinLoading = null; throw new Error("Couldn’t load the pinyin helper. Check your internet connection and try again."); });
+}
+const isHan = t => /^\p{Script=Han}+$/u.test(t);
+function plainPassages(pk){
+  const list = Array.isArray(pk) ? pk : Array.isArray(pk.passages) ? pk.passages : [pk.passage || pk];
+  return list.map(p => typeof p === "string" ? {title:"", text:p}
+      : p && typeof p === "object" ? {title: String(p.title_zh || p.title || ""), text: p.text_zh || p.text || p.content || p.zh} : null)
+    .filter(p => p && typeof p.text === "string" && /\p{Script=Han}/u.test(p.text));
+}
+function pinyinOf(text, pp){
+  const chars = [...text], py = pp.pinyin(text, {type:"array", toneType:"symbol"});
+  return py.length === chars.length ? py : chars.map(ch => pp.pinyin(ch));
+}
+// One paragraph -> the lesson-pack token list: [word, pinyin, meaning] for words, [text] for everything else
+function tokenizePara(text, pp){
+  const py = pinyinOf(text, pp), seg = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter("zh", {granularity:"word"}) : null;
+  const parts = seg ? [...seg.segment(text)].map(x => x.segment) : [...text];
+  const out = []; let i = 0;
+  for (const w of parts) {
+    const n = [...w].length;
+    out.push(isHan(w) ? [w, py.slice(i, i + n).join(" "), ""] : [w]);
+    i += n;
+  }
+  return out;
+}
+function passageLessons(list, pp){
+  return list.map(p => ({id:"p" + uid(), title:p.title, plain:true,
+    passages:[{title:p.title, py:"", paras: p.text.split(/\n+/).map(t => t.trim()).filter(Boolean).map(t => tokenizePara(t, pp))}]}));
+}
+function titlePlain(lessons, title){
+  for (const l of lessons) {
+    if (!l.plain) continue;
+    const t = l.title || title; l.title = t; delete l.plain;
+    const pa = l.passages[0]; pa.title = t; pa.py = window.pinyinPro ? pinyinOf(t, window.pinyinPro).map((s, i) => isHan([...t][i]) ? s : "").join(" ") : "";
+  }
+}
 async function readFile(file){
   if (/\.json$/i.test(file.name)) {
-    let pk; try { pk = JSON.parse(await file.text()); } catch (e) { throw new Error("That JSON file couldn’t be read."); }
+    let pk; try { pk = JSON.parse(await file.text()); } catch (e) { throw new Error("That JSON file couldn’t be read. It may be damaged or not really JSON."); }
     if (pk && pk.app === "tingxie") throw new Error("That’s a progress backup. Use Restore from backup at the bottom of this page instead.");
-    if (!pk || pk.app !== "tingxie-pack") throw new Error("That JSON file isn’t a lesson pack.");
+    if (!pk || pk.app !== "tingxie-pack") {
+      const list = pk && typeof pk === "object" ? plainPassages(pk) : [];
+      if (!list.length) throw new Error("That JSON file isn’t a lesson pack, and no Chinese passage text was found in it. A passage file looks like {\"passage\": {\"text_zh\": \"…\"}}.");
+      const pp = await loadPinyin(), name = file.name.replace(/\.[^.]+$/,"").replace(/[_-]+/g," ");
+      return {cards:[], lessons: passageLessons(list, pp), name, plain:true};
+    }
     const cards = (pk.cards || []).filter(c => c && c.w).map(c => ({w:String(c.w), p:String(c.p||""), m:String(c.m||""), ex:String(c.ex||""), exen:String(c.exen||"")}));
     return {cards, lessons: Array.isArray(pk.lessons) ? pk.lessons : [], name: pk.deckName || file.name.replace(/\.[^.]+$/,"")};
   }
@@ -955,8 +1008,11 @@ function renderDecks(){
       <button class="btn" data-reset="${d.id}">${D.confirm==="r"+d.id?"Tap again to reset":"Reset progress"}</button>
       ${S.meta.decks.length > 1 ? `<button class="btn danger" data-del="${d.id}">${D.confirm==="d"+d.id?"Tap again to delete":"Delete"}</button>` : ""}</div>`; }).join("");
   const tgt = D.pending ? (S.meta.decks.find(d => d.name === D.pending.name) || S.meta.decks.find(d => d.id === S.meta.current)) : null;
-  const pend = D.pending ? `<div class="panel" style="margin-top:12px"><h2 style="font-size:19px">Found ${D.pending.cards.length} words${(D.pending.lessons||[]).length ? ` and ${D.pending.lessons.length} textbook lessons` : ""}</h2>
-      <p class="hint">${D.pending.cards.slice(0,6).map(c=>esc(c.w)).join("、")}${D.pending.cards.length>6?"…":""}</p>
+  const pend = D.pending ? `<div class="panel" style="margin-top:12px"><h2 style="font-size:19px">${D.pending.plain ? `Found ${D.pending.lessons.length === 1 ? "a reading passage" : `${D.pending.lessons.length} reading passages`} for the Reading tab` : `Found ${D.pending.cards.length} words${(D.pending.lessons||[]).length ? ` and ${D.pending.lessons.length} textbook lessons` : ""}`}</h2>
+      ${D.pending.plain ? `<p class="hint han" style="font-size:17px">${esc(D.pending.lessons.map(l => l.passages[0].paras[0].map(t => t[0]).join("")).join(" / ").slice(0, 60))}…</p>
+      <p class="hint" style="margin-top:0">Pinyin was added automatically, so check any word with more than one reading.</p>
+      <div class="field"><label for="ptitle">Passage title</label><input id="ptitle" value="${esc(D.pending.lessons.find(l => l.title)?.title || D.pending.name)}"></div>`
+      : `<p class="hint">${D.pending.cards.slice(0,6).map(c=>esc(c.w)).join("、")}${D.pending.cards.length>6?"…":""}</p>`}
       <div class="field"><label for="dn">Deck name</label><input id="dn" value="${esc(D.pending.name)}"></div>
       <div class="row"><button class="btn primary" data-act="dcreate">Create deck</button>
       ${tgt ? `<button class="btn" data-act="dmerge" data-target="${tgt.id}">Add to “${esc(tgt.name)}”</button>` : ""}
@@ -968,7 +1024,7 @@ function renderDecks(){
   app.innerHTML = `<h3 style="margin-top:0">Your decks</h3><div class="decks">${decks}</div>
     <h3>Import words</h3>
     <div class="drop" id="drop"><b>Drop a CSV, Excel file, or lesson pack here</b>
-      <p>Columns: <code>word</code> <code>pinyin</code> <code>translation_en</code> <code>example</code> <code>example_en</code>. Separate example phrases with 、 and their translations with commas. A lesson pack (.json) adds textbook passages to the Reading tab.</p>
+      <p>Columns: <code>word</code> <code>pinyin</code> <code>translation_en</code> <code>example</code> <code>example_en</code>. Separate example phrases with 、 and their translations with commas. A lesson pack or a passage (.json) adds reading passages to the Reading tab.</p>
       <label class="btn primary">Choose file<input type="file" id="dfile" accept=".csv,.tsv,.txt,.xlsx,.xls,.json" hidden></label></div>
     ${pend}
     <h3>Words in “${esc(deck?.name||"")}”</h3>
@@ -1089,12 +1145,14 @@ document.addEventListener("click", e => {
     case "dcancel": D.pending = null; return render();
     case "bexport": return exportBackup();
     case "dcreate": {
+      if (D.pending.plain) titlePlain(D.pending.lessons, ($("#ptitle").value.trim() || D.pending.name));
       const id = "d"+uid(), name = ($("#dn").value.trim() || D.pending.name);
       const deck = {name, cards:[], nextId:0, lessons:[]}; addCards(deck, D.pending.cards); addLessons(deck, D.pending.lessons);
       S.decks[id] = deck; S.prog[id] = {srs:{}, daily:{}}; S.meta.decks.push({id, name}); S.meta.current = id;
       saveDeck(id); saveProg(id); saveMeta(); renderDeckSel(); D.pending = null; resetSession(); R.lesson = null; R.sel = null; toast(`Created “${name}” with ${deck.cards.length} words.`); return render();
     }
     case "dmerge": {
+      if (D.pending.plain) titlePlain(D.pending.lessons, ($("#ptitle").value.trim() || D.pending.name));
       const tid = ds.target || S.meta.current, nl = (D.pending.lessons||[]).length;
       const n = addCards(S.decks[tid], D.pending.cards); addLessons(S.decks[tid], D.pending.lessons); saveDeck(tid);
       if (tid !== S.meta.current) { S.meta.current = tid; saveMeta(); renderDeckSel(); }

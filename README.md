@@ -43,6 +43,20 @@ Upload a `.csv`, `.tsv`, `.xlsx`, or `.xls` file with these columns:
 - If there's no header row, columns are read in the order shown above.
 - Saving a CSV from Excel? Choose **CSV UTF-8** so the Chinese characters survive.
 
+### Passages
+
+To read your own text in the **Reading** tab, import a `.json` file that holds just the Chinese text:
+
+```json
+{ "passage": { "title": "月亮", "text_zh": "快中秋了，阳历是九月。…\n\n连着几个台风来，…" } }
+```
+
+- The app splits the text into words and adds pinyin automatically. Check words with more than one reading, such as 长 or 还.
+- `title` is optional. You can type or change it when importing. Blank lines (`\n`) start a new paragraph.
+- `text` or `content` also work in place of `text_zh`, and `"passages": [...]` imports several at once.
+- Adding pinyin needs an internet connection the first time.
+- Tapping a word shows its pinyin and stroke order, plus the meaning if the word is in your deck. For your own meanings, use a lesson pack instead.
+
 ### Lesson packs
 
 A lesson pack is a `.json` file that adds words and textbook passages to a deck in one import. Its passages appear in the **Reading** tab.
@@ -125,5 +139,6 @@ The whole app is one file, `index.html`.
 
 - Scheduling algorithm: [FSRS](https://github.com/open-spaced-repetition) by the open-spaced-repetition project.
 - Spreadsheet import: [SheetJS](https://sheetjs.com/).
+- Pinyin for imported passages: [pinyin-pro](https://github.com/zh-lx/pinyin-pro).
 - Stroke order: [Hanzi Writer](https://hanziwriter.org/), with stroke data from [Make Me a Hanzi](https://github.com/skishore/makemeahanzi).
 - Fonts: Figtree and Noto Serif SC from Google Fonts.
