@@ -896,6 +896,7 @@ function renderReading(){
       <label class="tog"><input type="checkbox" data-tog="readPy" ${set.readPy === false ? "" : "checked"}>Pinyin</label>
       <label class="tog"><input type="checkbox" data-tog="readHl" ${set.readHl === false ? "" : "checked"}>Underline deck words</label>
       <button class="btn" data-act="rall" style="margin-left:auto">Read whole lesson</button>
+      <button class="btn danger" data-act="rdel">${D.confirm === "l" + L.id ? "Tap again to remove" : "Remove passage"}</button>
     </div>
     <p class="hint" style="margin:0 0 6px"><span class="han" style="font-size:18px;color:var(--ink)">${esc(L.title)}</span>${L.pages ? `, textbook pages ${esc(L.pages)}` : ""}. Tap any word for its meaning.</p>
     ${vocab.length ? `<div class="chips"><span class="hint">Deck words in this lesson:</span>${vocab.map(c => `<button type="button" class="chip han" data-card="${c.id}">${esc(c.w)}</button>`).join("")}</div>` : ""}
@@ -1096,7 +1097,7 @@ document.addEventListener("click", e => {
   if (ds.q) { const [k, v] = ds.q.split(":"); Q[k] = (k === "n" && v !== "all") ? +v : v; return render(); }
   if (ds.tk) { const [pi, ri, ti] = ds.tk.split(":").map(Number); const t = curLesson().passages[pi].paras[ri][ti]; R.sel = {key:ds.tk, w:t[0], p:t[1], m:t[2]}; render(); return TTS.speak(t[0]); }
   if (ds.card) { const c = curDeck().cards.find(x => x.id === ds.card); if (c) { R.sel = {key:"c"+c.id, w:c.w, p:c.p, m:""}; render(); TTS.speak(c.w); } return; }
-  if (ds.rl) { R.lesson = ds.rl; R.sel = null; render(); return window.scrollTo(0, 0); }
+  if (ds.rl) { R.lesson = ds.rl; R.sel = null; D.confirm = null; render(); return window.scrollTo(0, 0); }
   if (ds.rp) { const [pi, ri] = ds.rp.split(":").map(Number); return TTS.speak(paraText(curLesson().passages[pi].paras[ri])); }
   if (ds.themeSet) { S.meta.settings.theme = ds.themeSet; saveMeta(); applyTheme(); return render(); }
   if (ds.ret) { S.meta.settings.retention = +ds.ret; saveMeta(); return render(); }
@@ -1143,6 +1144,16 @@ document.addEventListener("click", e => {
     case "skquiz": return Strokes.quiz();
     case "rall": { const L = curLesson(); return L && TTS.speakAll(L.passages.flatMap(p => [p.title, ...(p.author ? [(p.era||"") + p.author] : []), ...p.paras.map(paraText)])); }
     case "dcancel": D.pending = null; return render();
+    case "rdel": {   // remove the open passage from this deck; first tap asks, Undo puts it back
+      const L = curLesson(); if (!L) return;
+      if (D.confirm !== "l" + L.id) { D.confirm = "l" + L.id; return render(); }
+      const did = S.meta.current, deck = S.decks[did], i = deck.lessons.indexOf(L);
+      deck.lessons.splice(i, 1); saveDeck(did); D.confirm = null; R.lesson = null; R.sel = null; render();
+      return toast(`Removed “${L.title}”.`, "Undo", () => {
+        deck.lessons.splice(i, 0, L); saveDeck(did);
+        if (S.meta.current === did) { R.lesson = L.id; if (S.tab === "reading") render(); }
+      });
+    }
     case "bexport": return exportBackup();
     case "dcreate": {
       if (D.pending.plain) titlePlain(D.pending.lessons, ($("#ptitle").value.trim() || D.pending.name));
@@ -1153,11 +1164,14 @@ document.addEventListener("click", e => {
     }
     case "dmerge": {
       if (D.pending.plain) titlePlain(D.pending.lessons, ($("#ptitle").value.trim() || D.pending.name));
-      const tid = ds.target || S.meta.current, nl = (D.pending.lessons||[]).length;
+      const tid = ds.target || S.meta.current, nl = (D.pending.lessons||[]).length, before = JSON.parse(JSON.stringify(S.decks[tid]));
       const n = addCards(S.decks[tid], D.pending.cards); addLessons(S.decks[tid], D.pending.lessons); saveDeck(tid);
       if (tid !== S.meta.current) { S.meta.current = tid; saveMeta(); renderDeckSel(); }
       D.pending = null; R.lesson = null; R.sel = null; if (sess.phase !== "run") resetSession();
-      toast(`Added ${n} new word${n===1?"":"s"}${nl ? ` and ${nl} lesson${nl===1?"":"s"}` : ""}.`); return render();
+      toast(`Added ${n} new word${n===1?"":"s"}${nl ? ` and ${nl} lesson${nl===1?"":"s"}` : ""}.`, "Undo", () => {
+        S.decks[tid] = before; saveDeck(tid); R.lesson = null; R.sel = null; if (sess.phase !== "run") resetSession(); render();
+      });
+      return render();
     }
   }
 });
