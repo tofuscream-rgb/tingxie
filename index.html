@@ -144,6 +144,8 @@ main{max-width:880px;margin:0 auto;padding:18px 16px 40px}
 .dk .nm{font-weight:700;font-size:17px}
 .dk .meta{color:var(--muted);font-size:13px}
 .dk .grow{flex:1;min-width:160px}
+.scan{border-top:1px solid var(--line);padding:10px 0}
+.scantext{width:100%;margin-top:6px;border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:var(--surface-2);font-size:18px;line-height:1.6;resize:vertical}
 .drop{border:2px dashed var(--line);border-radius:14px;padding:18px;text-align:center;background:var(--surface)}
 .drop.over{border-color:var(--jade);background:var(--jade-soft)}
 .drop p{margin:6px 0;color:var(--muted);font-size:14px}
@@ -898,7 +900,7 @@ function renderReading(){
       <button class="btn" data-act="rall" style="margin-left:auto">Read whole lesson</button>
       <button class="btn danger" data-act="rdel">${D.confirm === "l" + L.id ? "Tap again to remove" : "Remove passage"}</button>
     </div>
-    <p class="hint" style="margin:0 0 6px"><span class="han" style="font-size:18px;color:var(--ink)">${esc(L.title)}</span>${L.pages ? `, textbook pages ${esc(L.pages)}` : ""}. Tap any word for its meaning.</p>
+    <p class="hint" style="margin:0 0 6px"><span class="han" style="font-size:18px;color:var(--ink)">${esc(L.title)}</span>${L.pages ? `, textbook pages ${esc(L.pages)}` : ""}. Tap any word for its meaning.${L.scanned ? ` <span class="pill" title="Found by scanning a textbook PDF">auto-scanned</span>` : ""}</p>
     ${vocab.length ? `<div class="chips"><span class="hint">Deck words in this lesson:</span>${vocab.map(c => `<button type="button" class="chip han" data-card="${c.id}">${esc(c.w)}</button>`).join("")}</div>` : ""}
     <div class="read ${set.readPy === false ? "nopy" : ""} ${set.readHl === false ? "" : "hl"}">${pass}</div>
     ${sheetHTML()}`;
@@ -953,14 +955,15 @@ function pinyinOf(text, pp){
   const chars = [...text], py = pp.pinyin(text, {type:"array", toneType:"symbol"});
   return py.length === chars.length ? py : chars.map(ch => pp.pinyin(ch));
 }
-// One paragraph -> the lesson-pack token list: [word, pinyin, meaning] for words, [text] for everything else
-function tokenizePara(text, pp){
+// One paragraph -> the lesson-pack token list: [word, pinyin, meaning] for words, [text] for everything else.
+// meanings (optional) maps a deck word to its meaning.
+function tokenizePara(text, pp, meanings){
   const py = pinyinOf(text, pp), seg = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter("zh", {granularity:"word"}) : null;
   const parts = seg ? [...seg.segment(text)].map(x => x.segment) : [...text];
   const out = []; let i = 0;
   for (const w of parts) {
     const n = [...w].length;
-    out.push(isHan(w) ? [w, py.slice(i, i + n).join(" "), ""] : [w]);
+    out.push(isHan(w) ? [w, py.slice(i, i + n).join(" "), (meanings && meanings.get(w)) || ""] : [w]);
     i += n;
   }
   return out;
@@ -976,6 +979,123 @@ function titlePlain(lessons, title){
     const pa = l.passages[0]; pa.title = t; pa.py = window.pinyinPro ? pinyinOf(t, window.pinyinPro).map((s, i) => isHan([...t][i]) ? s : "").join(" ") : "";
   }
 }
+/* ---------- find readings in a textbook PDF ----------
+   The PDF is read in this browser with PDF.js (Apache 2.0) and is never uploaded or saved. Only the lesson
+   text the user ticks and checks is kept, as ordinary lessons in the current deck. */
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/";
+const PDFJS_CMAPS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/";   // character maps for Chinese fonts
+let pdfjsLoading = null;
+function loadPdfjs(){
+  return pdfjsLoading ||= import(PDFJS + "pdf.min.mjs")
+    .then(lib => { lib.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.mjs"; return lib; })
+    .catch(() => { pdfjsLoading = null; throw new Error("Couldn’t load the PDF reader. Check your internet connection and try again."); });
+}
+let F = null;   // scan state: {phase:"reading", done, total} or {phase:"results", name, lessons, missing}
+const hasHan = t => /\p{Script=Han}/u.test(t);
+const bareNum = t => /^\d{1,3}$/.test(t);
+// Page furniture: unit headers, footnotes, watermarks. Bare numbers are handled separately.
+const isFurniture = t => /^第[一二三四五六七八九十百\d]+单元/.test(t) || /^[\u2460-\u2473\u3251-\u325F]/.test(t) || /微信|小红书/.test(t);
+// A PDF page's text as visual lines, top to bottom
+async function pdfLines(page){
+  const vp = page.getViewport({scale:1}), tc = await page.getTextContent();
+  const items = tc.items.filter(it => it.str && it.str.trim())
+    .map(it => ({s:it.str, x:it.transform[4], y:it.transform[5], w:it.width || 0, h:Math.abs(it.transform[3]) || it.height || 10}))
+    .sort((a, b) => b.y - a.y || a.x - b.x);
+  const lines = [];
+  for (const it of items) {
+    const ln = lines.find(l => Math.abs(l.y - it.y) < Math.min(l.h, it.h) * 0.4);
+    if (ln) { ln.items.push(it); ln.h = Math.max(ln.h, it.h); } else lines.push({y:it.y, h:it.h, items:[it]});
+  }
+  return {height:vp.height, lines: lines.sort((a, b) => b.y - a.y).map(l => {
+    l.items.sort((a, b) => a.x - b.x);
+    let text = "";
+    l.items.forEach((it, i) => { const prev = l.items[i - 1]; if (prev && it.x - (prev.x + prev.w) > l.h * 0.6) text += " "; text += it.s; });
+    return {y:l.y, x:l.items[0].x, h:l.h, text:text.replace(/\s+/g, " ").trim()};
+  })};
+}
+async function scanPdf(file){
+  const deck = curDeck(), deckChars = new Set(deck.cards.flatMap(c => [...c.w].filter(ch => hasHan(ch))));
+  if (!deckChars.size) throw new Error("This deck has no Chinese words to look for. Import its flashcards first.");
+  const lib = await loadPdfjs();
+  let doc;
+  try { doc = await lib.getDocument({data: new Uint8Array(await file.arrayBuffer()), cMapUrl: PDFJS_CMAPS, cMapPacked: true, isEvalSupported: false}).promise; }
+  catch (e) { throw new Error(e && e.name === "PasswordException" ? "That PDF is password-protected, so it can’t be read." : "That file couldn’t be opened as a PDF."); }
+  const pages = [];
+  try {
+    for (let n = 1; n <= doc.numPages; n++) {
+      F = {phase:"reading", done:n - 1, total:doc.numPages}; const pr = $("#pdfprog"); if (pr) pr.textContent = `Reading page ${n} of ${doc.numPages}…`;
+      pages.push(Object.assign({n}, await pdfLines(await doc.getPage(n))));
+    }
+  } finally { doc.destroy(); }
+  if (!pages.some(pg => pg.lines.some(l => hasHan(l.text)))) throw new Error("No Chinese text was found in this PDF. It may be scanned images, which can’t be read.");
+  // Printed page numbers: bare numbers at the very top or bottom; the most common PDF-to-printed offset wins
+  const offsets = new Map();
+  for (const pg of pages) for (const l of pg.lines) if (bareNum(l.text) && (l.y < pg.height * 0.12 || l.y > pg.height * 0.92)) { const o = pg.n - +l.text; offsets.set(o, (offsets.get(o) || 0) + 1); }
+  const offset = [...offsets].sort((a, b) => b[1] - a[1])[0]?.[0];
+  for (const pg of pages) {
+    pg.printed = offset !== undefined && pg.n - offset >= 1 ? pg.n - offset : null;
+    pg.kept = pg.lines.filter(l => hasHan(l.text) && !isFurniture(l.text));
+    pg.found = new Set([...pg.kept.map(l => l.text).join("")].filter(ch => deckChars.has(ch)));
+    // Lesson start: a bare number near the top (not the page number) followed by a Chinese title line
+    const ordered = pg.lines.filter(l => !isFurniture(l.text) && (bareNum(l.text) || hasHan(l.text)));
+    const i = ordered.findIndex(l => bareNum(l.text) && +l.text >= 1 && +l.text !== pg.printed && l.y > pg.height * 0.55);
+    if (i >= 0 && ordered[i + 1] && hasHan(ordered[i + 1].text)) pg.start = {num:+ordered[i].text, title:ordered[i + 1].text};
+    else { const t = pg.kept.slice(0, 3).find(l => /^(语文园地|快乐读书吧|口语交际)/.test(l.text)); if (t) pg.start = {num:null, title:t.text}; }
+    if (pg.start) pg.kept = pg.kept.filter(l => l.text !== pg.start.title);
+  }
+  // Group consecutive high-scoring pages (plus a lesson's trailing pages), starting a new lesson wherever one begins
+  const best = Math.max(...pages.map(pg => pg.found.size)), cut = Math.max(2, Math.ceil(best * 0.2));
+  const groups = []; let cur = null;
+  pages.forEach((pg, i) => {
+    const prev = pages[i - 1];
+    if (pg.found.size < cut) {   // a lesson's last page often has only a few deck characters
+      if (cur && !pg.start && pg.found.size) cur.pages.push(pg); else cur = null;
+      return;
+    }
+    if (pg.start || !cur) { cur = {pages: !pg.start && prev && prev.start && !cur ? [prev, pg] : [pg]}; groups.push(cur); }
+    else cur.pages.push(pg);
+  });
+  const allFound = new Set(pages.flatMap(pg => [...pg.found]));
+  const lessons = groups.map((g, k) => {
+    const st = g.pages[0].start || {num:null, title:""}, first = g.pages[0], last = g.pages[g.pages.length - 1];
+    const found = [...deckChars].filter(ch => g.pages.some(pg => pg.found.has(ch)));
+    const range = first.printed ? (first === last ? `${first.printed}` : `${first.printed}–${last.printed}`) : "";
+    return {k, num:st.num, title:st.title, pages:range, pdfPages: first === last ? `${first.n}` : `${first.n}–${last.n}`, found, text:pagesText(g.pages), sel:false};
+  });
+  return {name:file.name, lessons, missing:[...deckChars].filter(ch => !allFound.has(ch))};
+}
+// Join a lesson's lines into paragraphs: an indented line starts a new paragraph; pages with no indents keep one line each (poems, word lists)
+function pagesText(pages){
+  const paras = [];
+  for (const pg of pages) {
+    if (!pg.kept.length) continue;
+    const left = Math.min(...pg.kept.map(l => l.x)), indented = l => l.x - left > l.h * 1.2;
+    const anyIndent = pg.kept.some(indented);
+    pg.kept.forEach((l, i) => {
+      if (!anyIndent || indented(l) || !paras.length || i === 0 && /[。！？”…]$/.test(paras[paras.length - 1])) paras.push(l.text);
+      else paras[paras.length - 1] += l.text;
+    });
+  }
+  return paras.join("\n\n");
+}
+async function saveScanned(){
+  const pick = F.lessons.filter(l => l.sel); if (!pick.length) return;
+  const pp = await loadPinyin(), did = S.meta.current, deck = S.decks[did];
+  const meanings = new Map(deck.cards.filter(c => c.m).map(c => [c.w, c.m]));
+  const made = pick.map(l => {
+    const title = l.title.trim() || (l.num ? `Lesson ${l.num}` : "Reading");
+    return {id:"s" + uid(), num:l.num || undefined, title, pages:l.pages || undefined, scanned:true,
+      passages:[{title, py:pinyinOf(title, pp).map((s, i) => isHan([...title][i]) ? s : "").join(" "),
+        paras:l.text.split(/\n+/).map(t => t.trim()).filter(Boolean).map(t => tokenizePara(t, pp, meanings))}]};
+  });
+  // Scanning the same lesson again replaces the earlier scan
+  deck.lessons = (deck.lessons || []).filter(l => !(l.scanned && made.some(m => m.title === l.title && m.pages === l.pages)));
+  addLessons(deck, made); saveDeck(did);
+  F = null; R.lesson = made[0].id; R.sel = null;
+  toast(`Saved ${made.length} reading${made.length === 1 ? "" : "s"} to “${deck.name}”.`);
+  S.tab = "reading"; render(); window.scrollTo(0, 0);
+}
+
 async function readFile(file){
   if (/\.json$/i.test(file.name)) {
     let pk; try { pk = JSON.parse(await file.text()); } catch (e) { throw new Error("That JSON file couldn’t be read. It may be damaged or not really JSON."); }
@@ -1000,6 +1120,25 @@ function deckStats(id){
   const n = d.cards.length, m = d.cards.filter(c => p.srs[c.id]?.m).length;
   const seen = d.cards.filter(c => { const s = p.srs[c.id]; return s && s.read; }).length;
   return {n, m, seen};
+}
+function scanHTML(){
+  const deck = curDeck(), sel = F.lessons.filter(l => l.sel).length;
+  const chars = list => list.map(ch => `<span class="han">${esc(ch)}</span>`).join(" ");
+  return `<div class="panel" style="margin-top:12px">
+    <h2 style="font-size:19px">${F.lessons.length ? `Found ${F.lessons.length} possible lesson${F.lessons.length === 1 ? "" : "s"}` : "No lessons matched this deck"}</h2>
+    <p class="hint" style="margin-top:0">In ${esc(F.name)}, for “${esc(deck.name)}”. Tick the lessons to save.</p>
+    ${F.lessons.map(l => `<div class="scan">
+      <label class="row" style="align-items:flex-start;gap:10px"><input type="checkbox" data-fsel="${l.k}" ${l.sel ? "checked" : ""} style="margin-top:5px">
+        <span><b>${l.num ? `Lesson ${l.num} · ` : ""}<span class="han">${esc(l.title || "Untitled")}</span></b>
+        <span class="hint"> · ${l.pages ? `pages ${esc(l.pages)}` : `PDF pages ${esc(l.pdfPages)}`}</span><br>
+        <span class="hint">${l.found.length} deck character${l.found.length === 1 ? "" : "s"}: </span>${chars(l.found)}</span></label>
+      ${l.sel ? `<div class="field" style="margin:8px 0 0"><label>Title</label><input data-ftitle="${l.k}" value="${esc(l.title)}"></div>
+        <textarea class="han scantext" data-ftext="${l.k}" rows="${Math.min(14, Math.max(5, l.text.split("\n").length + 1))}" aria-label="Passage text">${esc(l.text)}</textarea>
+        <p class="hint" style="margin:4px 0 0">Some characters may be missing from the PDF’s text. Compare with your book and fix any gaps before saving.</p>` : ""}
+    </div>`).join("")}
+    ${F.missing.length ? `<p class="hint">Not found anywhere in this PDF: ${chars(F.missing)}</p>` : `<p class="hint">Every deck character was found in this PDF.</p>`}
+    <div class="row">${sel ? `<button class="btn primary" data-act="fsave">Save ${sel} reading${sel === 1 ? "" : "s"} to “${esc(deck.name)}”</button>` : ""}<button class="btn" data-act="fcancel">${sel ? "Cancel" : "Close"}</button></div>
+  </div>`;
 }
 function renderDecks(){
   const app = $("#app");
@@ -1028,6 +1167,11 @@ function renderDecks(){
       <p>Columns: <code>word</code> <code>pinyin</code> <code>translation_en</code> <code>example</code> <code>example_en</code>. Separate example phrases with 、 and their translations with commas. A lesson pack or a passage (.json) adds reading passages to the Reading tab.</p>
       <label class="btn primary">Choose file<input type="file" id="dfile" accept=".csv,.tsv,.txt,.xlsx,.xls,.json" hidden></label></div>
     ${pend}
+    <h3>Find readings in textbook</h3>
+    <p class="hint" style="margin:0 0 8px">Choose your textbook PDF to find the lessons that use this deck’s words. The PDF is read on this device only and isn’t uploaded or saved.</p>
+    ${F && F.phase === "reading" ? `<p class="hint" id="pdfprog">Reading page ${F.done + 1} of ${F.total}…</p>`
+      : `<label class="btn primary">Find readings in textbook<input type="file" id="pdffile" accept=".pdf,application/pdf" hidden></label>`}
+    ${F && F.phase === "results" ? scanHTML() : ""}
     <h3>Words in “${esc(deck?.name||"")}”</h3>
     <p class="hint" style="margin:0">Progress shows how long until each word’s next flashcard review.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Word</th><th>Pinyin</th><th>Meaning</th><th>Progress</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -1046,6 +1190,14 @@ function renderDecks(){
     <h3>Backup</h3>
     <p class="hint">Your decks and progress are saved in this browser only. Download a backup to move your progress to another copy of this app, or restore one here. Restoring replaces the decks and progress on this page.</p>
     <div class="row"><button class="btn" data-act="bexport">Download backup</button><label class="btn">Restore from backup<input type="file" id="bfile" accept=".json,application/json" hidden></label></div>`;
+  const pf = $("#pdffile");
+  if (pf) pf.onchange = async () => {
+    const file = pf.files[0]; pf.value = ""; if (!file) return;
+    F = {phase:"reading", done:0, total:0}; render();
+    try { const r = await scanPdf(file); F = Object.assign({phase:"results"}, r); }
+    catch (e) { F = null; toast(e.message || "Couldn’t read that PDF."); }
+    if (S.tab === "decks") render();
+  };
   const bf = $("#bfile");
   bf.onchange = async () => {
     const file = bf.files[0]; if (!file) return;
@@ -1144,6 +1296,8 @@ document.addEventListener("click", e => {
     case "skquiz": return Strokes.quiz();
     case "rall": { const L = curLesson(); return L && TTS.speakAll(L.passages.flatMap(p => [p.title, ...(p.author ? [(p.era||"") + p.author] : []), ...p.paras.map(paraText)])); }
     case "dcancel": D.pending = null; return render();
+    case "fcancel": F = null; return render();
+    case "fsave": return saveScanned().catch(e => toast(e.message || "Couldn’t save the readings."));
     case "rdel": {   // remove the open passage from this deck; first tap asks, Undo puts it back
       const L = curLesson(); if (!L) return;
       if (D.confirm !== "l" + L.id) { D.confirm = "l" + L.id; return render(); }
@@ -1176,16 +1330,19 @@ document.addEventListener("click", e => {
   }
 });
 document.addEventListener("change", e => {
+  if (e.target.dataset && e.target.dataset.fsel != null && F && F.lessons) { F.lessons[+e.target.dataset.fsel].sel = e.target.checked; return render(); }
   if (e.target.id === "voiceSel") { S.meta.settings.voice = e.target.value; saveMeta(); TTS.pick(); e.target.innerHTML = voiceOptionsHTML(); return TTS.speak(VOICE_SAMPLE); }
   const tg = e.target.dataset && e.target.dataset.tog;
   if (tg) { S.meta.settings[tg] = e.target.checked; saveMeta(); render(); }
 });
 document.addEventListener("input", e => {
   const ds = e.target.dataset;
+  if (F && F.lessons && ds.ftext != null) { F.lessons[+ds.ftext].text = e.target.value; return; }
+  if (F && F.lessons && ds.ftitle != null) { F.lessons[+ds.ftitle].title = e.target.value; return; }
   if (ds.act === "rate") { S.meta.settings.rate = +e.target.value; saveMeta(); }
   if (ds.act === "newper") { const v = Math.max(1, Math.min(200, +e.target.value || 15)); S.meta.settings.newPerDay = v; saveMeta(); if (sess.phase !== "run") resetSession(); }
 });
-$("#deckSel").addEventListener("change", e => { Q.phase = "setup"; R.lesson = null; R.sel = null; S.meta.current = e.target.value; saveMeta(); resetSession(); window.speechSynthesis?.cancel?.(); render(); });
+$("#deckSel").addEventListener("change", e => { if (F && F.phase === "results") F = null; Q.phase = "setup"; R.lesson = null; R.sel = null; S.meta.current = e.target.value; saveMeta(); resetSession(); window.speechSynthesis?.cancel?.(); render(); });
 document.addEventListener("keydown", e => {
   if (e.isComposing || e.keyCode === 229) return;
   const inInput = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);

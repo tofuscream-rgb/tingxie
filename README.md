@@ -27,7 +27,7 @@ Pick a session size of 5, 10, 20, or all of the available words. When a session 
 
 **Reading** shows your textbook passages with pinyin above each character. Tap any word to hear it and see its meaning, along with any matching words in your deck. Words from your deck are underlined, and the deck words in each lesson are listed at the top. Play a single line or the whole lesson aloud, and turn the pinyin or underlining off. Passages come from passage files or lesson packs (see below). **Remove passage** takes the open passage out of the deck (tap twice to confirm, then **Undo** if you change your mind).
 
-**Decks** lets you import word lists from CSV, Excel, or lesson packs (with **Undo** right after adding to a deck), switch between decks, mark words mastered, set a daily limit for new words in Spaced review, pick the voice that reads words aloud under **Voice** (with a **Test** button), choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
+**Decks** lets you find a deck's readings in your textbook PDF, import word lists from CSV, Excel, or lesson packs (with **Undo** right after adding to a deck), switch between decks, mark words mastered, set a daily limit for new words in Spaced review, pick the voice that reads words aloud under **Voice** (with a **Test** button), choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
 
 ## Importing words
 
@@ -42,6 +42,17 @@ Upload a `.csv`, `.tsv`, `.xlsx`, or `.xls` file with these columns:
 - Only `word` is required. Common alternative headers such as `hanzi`, `汉字`, `meaning`, and `拼音` are also recognized.
 - If there's no header row, columns are read in the order shown above.
 - Saving a CSV from Excel? Choose **CSV UTF-8** so the Chinese characters survive.
+
+### Find readings in a textbook PDF
+
+**Decks → Find readings in textbook** looks through your textbook PDF for the lessons that use the current deck's characters.
+
+1. Pick the PDF. It's read on your device only, and is never uploaded or saved.
+2. The app lists the likely lessons, with lesson number, title, printed page numbers, and the deck characters found in each. It also lists deck characters found nowhere in the PDF.
+3. Tick the lessons you want. Each one's text appears in an editable box: compare it with your book and fix any missing characters (some PDFs leave characters out of their text).
+4. Save. The lessons are added to the current deck with pinyin, marked **auto-scanned** in Reading, and words that match your flashcards show their meanings.
+
+It works with PDFs that contain real text, not scanned photos of pages, and needs an internet connection to load the PDF reader.
 
 ### Passages
 
@@ -139,6 +150,7 @@ The whole app is one file, `index.html`.
 
 - Scheduling algorithm: [FSRS](https://github.com/open-spaced-repetition) by the open-spaced-repetition project.
 - Spreadsheet import: [SheetJS](https://sheetjs.com/).
-- Pinyin for imported passages: [pinyin-pro](https://github.com/zh-lx/pinyin-pro).
+- Pinyin for imported and scanned passages: [pinyin-pro](https://github.com/zh-lx/pinyin-pro).
+- Reading textbook PDFs: [PDF.js](https://mozilla.github.io/pdf.js/).
 - Stroke order: [Hanzi Writer](https://hanziwriter.org/), with stroke data from [Make Me a Hanzi](https://github.com/skishore/makemeahanzi).
 - Fonts: Figtree and Noto Serif SC from Google Fonts.
