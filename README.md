@@ -48,7 +48,7 @@ Upload a `.csv`, `.tsv`, `.xlsx`, or `.xls` file with these columns:
 In **Reading**, **Link textbook PDF** lets you read each lesson on the real textbook pages instead of as plain text.
 
 - The PDF is kept on this device only (in the browser's IndexedDB storage) and remembered next time. It isn't uploaded, and it isn't part of backups. **Unlink** removes it from the device.
-- Switch between **Text view** and **Page view** at the top of Reading. Page view appears once a textbook is linked.
+- Switch between **Text view** and **Page view** at the top of Reading. Page view appears once a textbook is linked. Passages that aren't in the textbook, such as articles from elsewhere, are always shown as text, even in Page view.
 - The app finds each lesson's pages by matching their text, then puts an invisible tap target over every word: tap one to open the usual word panel (pinyin, meaning, audio, stroke order, deck card).
 - **Underline deck words** highlights deck words on the page, and turning **Pinyin** off covers the book's printed pinyin.
 - Pages are drawn as you scroll, sharp on high-resolution screens, and you can pinch to zoom.

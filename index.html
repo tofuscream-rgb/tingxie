@@ -903,7 +903,7 @@ function renderReading(){
         ? `<span class="pu">${esc(t[0])}</span>`
         : `<span class="tk ${isV(t[0]) ? "v" : ""} ${R.sel && R.sel.key === `${pi}:${ri}:${ti}` ? "on" : ""}" data-tk="${pi}:${ri}:${ti}" role="button" tabindex="0" aria-label="${esc(t[0])}">${rubyHTML(t[0], t[1])}</span>`).join("")}</p>`).join("")}
   </section>`).join("");
-  const pageView = !!Book.info && set.readView === "page";
+  const pageView = !!Book.info && set.readView === "page", pages = pageView && pageViewHTML(L, set);
   app.innerHTML = `<div id="notice">${noticeHTML()}</div>
     <div class="rbar">
       ${Book.info ? `<div class="seg" role="group" aria-label="View"><button type="button" data-rview="text" aria-pressed="${!pageView}">Text view</button><button type="button" data-rview="page" aria-pressed="${pageView}">Page view</button></div>
@@ -919,9 +919,9 @@ function renderReading(){
     </div>
     <p class="hint" style="margin:0 0 6px"><span class="han" style="font-size:18px;color:var(--ink)">${esc(L.title)}</span>${L.pages ? `, textbook pages ${esc(L.pages)}` : ""}. Tap any word for its meaning.${L.scanned ? ` <span class="pill" title="Found by scanning a textbook PDF">auto-scanned</span>` : ""}</p>
     ${vocab.length ? `<div class="chips"><span class="hint">Deck words in this lesson:</span>${vocab.map(c => `<button type="button" class="chip han" data-card="${c.id}">${esc(c.w)}</button>`).join("")}</div>` : ""}
-    ${pageView ? pageViewHTML(L, set) : `<div class="read ${set.readPy === false ? "nopy" : ""} ${set.readHl === false ? "" : "hl"}">${pass}</div>`}
+    ${pages || `${pageView ? pageViewNote(L) : ""}<div class="read ${set.readPy === false ? "nopy" : ""} ${set.readHl === false ? "" : "hl"}">${pass}</div>`}
     ${sheetHTML()}`;
-  if (pageView) Book.mount(L, isV);
+  if (pages) Book.mount(L, isV);
   const bf = $("#bookfile");
   if (bf) bf.onchange = async () => {
     const file = bf.files[0]; bf.value = ""; if (!file) return;
@@ -931,12 +931,21 @@ function renderReading(){
     if (S.tab === "reading") render();
   };
 }
+// The lesson's textbook pages, or "" when it has none (yet), so Reading shows its text instead
 function pageViewHTML(L, set){
   const pv = Book.map[L.id];
-  if (!pv) { Book.prepare(L); return `<div class="panel"><p class="hint" id="pvstatus" style="margin:0">${esc(Book.status || "Opening your textbook…")}</p></div>`; }
-  if (pv.error) return `<div class="panel"><p class="hint" style="margin:0">${esc(pv.error)}</p></div>`;
-  if (!pv.pages.length) return `<div class="panel"><p class="hint" style="margin:0">This lesson’s pages weren’t found in the linked textbook. Text view still works.</p></div>`;
+  if (!pv) { Book.prepare(L); return ""; }
+  if (pv.error || !pv.pages.length) return "";
   return `<div class="pv ${set.readPy === false ? "nopy" : ""} ${set.readHl === false ? "" : "hl"}">${pv.pages.map(n => `<div data-pvpage="${n}"></div>`).join("")}</div>`;
+}
+
+// Why page view is showing text for this lesson
+function pageViewNote(L){
+  const pv = Book.map[L.id];
+  const msg = !pv ? `<span id="pvstatus">${esc(Book.status || "Opening your textbook…")}</span> The text is shown below meanwhile.`
+    : pv.error ? esc(pv.error)
+    : "This passage isn’t in the linked textbook, so it’s shown as text.";
+  return `<p class="hint" style="margin:0 0 8px">${msg}</p>`;
 }
 
 /* ---------- decks ---------- */
@@ -1265,6 +1274,8 @@ const Book = {
     if (!best) return {pages:[]};
     let a = best, b = best; while (score[a - 1]) a--; while (score[b + 1]) b++;
     const pages = []; for (let n = a; n <= b; n++) pages.push(n);
+    const lessonHits = new Set(pages.flatMap(n => bigrams(this.pages[n].chars.filter(ch => hasHan(ch.c)).map(ch => ch.c).join("")).filter(x => lessonPairs.has(x))));
+    if (lessonHits.size < lessonPairs.size * 0.4) return {pages:[]};   // only a few phrases in common: not this lesson
     // Align the lesson's characters to the pages' characters in reading order (longest common subsequence,
     // taking the earliest match so a sentence repeated in the exercises doesn't steal the lesson's words)
     const P = pages.flatMap(n => this.pages[n].chars), nL = seq.length, nP = P.length, W = nP + 1;
