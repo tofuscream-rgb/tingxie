@@ -25,7 +25,7 @@ Pick a session size of 5, 10, 20, or all of the available words. When a session 
 
 **笔顺 Stroke order** animates how to write a word, stroke by stroke. It pops up in the Quiz, and you can open it from the back of a flashcard. Choose **Write it yourself** to trace each stroke in order: wrong strokes are rejected, and a hint appears after 2 misses. Stroke order needs an internet connection.
 
-**Reading** shows your textbook passages with pinyin above each character. Tap any word to hear it and see its meaning, along with any matching words in your deck. Words from your deck are underlined, and the deck words in each lesson are listed at the top. Play a single line or the whole lesson aloud, and turn the pinyin or underlining off. Passages come from passage files or lesson packs (see below). **Remove passage** takes the open passage out of the deck (tap twice to confirm, then **Undo** if you change your mind).
+**Reading** shows your textbook passages with pinyin above each character. Tap any word to hear it and see its meaning, along with any matching words in your deck. Words from your deck are underlined, and the deck words in each lesson are listed at the top. Play a single line or the whole lesson aloud, and turn the pinyin or underlining off. Tap a word that isn't in your deck and its dictionary definition appears (the dictionary downloads once, about 4 MB, then works offline). **Edit text** fixes wrong or missing characters and works out the pinyin again. Passages come from passage files or lesson packs (see below). **Remove passage** takes the open passage out of the deck (tap twice to confirm, then **Undo** if you change your mind).
 
 **Decks** lets you find a deck's readings in your textbook PDF, import word lists from CSV, Excel, or lesson packs (with **Undo** right after adding to a deck), switch between decks, mark words mastered, set a daily limit for new words in Spaced review, pick the voice that reads words aloud under **Voice** (with a **Test** button), choose a light, dark, or system theme under **Appearance**, and back up or restore your progress.
 
@@ -166,5 +166,6 @@ The whole app is one file, `index.html`.
 - Spreadsheet import: [SheetJS](https://sheetjs.com/).
 - Pinyin for imported and scanned passages: [pinyin-pro](https://github.com/zh-lx/pinyin-pro).
 - Reading textbook PDFs: [PDF.js](https://mozilla.github.io/pdf.js/).
+- Dictionary: [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cc-cedict) (CC BY-SA 4.0), via [cedict-json](https://github.com/matt-tingen/cedict-json).
 - Stroke order: [Hanzi Writer](https://hanziwriter.org/), with stroke data from [Make Me a Hanzi](https://github.com/skishore/makemeahanzi).
 - Fonts: Figtree and Noto Serif SC from Google Fonts.
