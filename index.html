@@ -225,6 +225,8 @@ h3{margin:22px 0 10px;font-size:18px}
 .pvtk:hover{background:rgba(34,112,95,.12)}
 .pv.hl .pvtk.v{background:rgba(34,112,95,.2)}
 .pvtk.on,.pv.hl .pvtk.v.on{background:rgba(34,112,95,.3);outline:2px solid var(--jade)}
+.tk.odd,.pvtk.odd{outline:2px dashed var(--bad);outline-offset:1px}
+.odd-note{color:var(--bad);font-size:14px;margin:0}
 .dict{font-size:16px;line-height:1.45}
 .dict .han{font-size:20px}
 .dict .dpy{color:var(--jade);font-weight:600}
@@ -945,6 +947,7 @@ function sheetHTML(){
     <div class="sgrow">
       <div class="row"><span class="py" style="font-size:22px">${esc(s.p)}</span><button class="icon-btn" data-say="${esc(s.w)}" aria-label="Play ${esc(s.w)}">${ICON_PLAY}</button><button type="button" class="btn sm" data-act="strokes" data-w="${esc(s.w)}">笔顺 Stroke order</button><button class="linkish" data-act="rclose" style="margin-left:auto">Close</button></div>
       ${s.m ? `<div style="font-size:18px">${esc(s.m)}</div>` : ""}
+      ${oddWord([s.w, s.p, ""]) ? `<p class="odd-note">This character doesn’t look right: it has no known pinyin, so it was probably copied wrongly from the PDF. Compare it with your book and correct it. <button class="linkish" data-act="redit">Edit text</button></p>` : ""}
       ${s.m || cards.some(c => c.w === s.w) ? "" : dictHTML(s)}
       ${cards.map(c => { const st = p.srs[c.id] || {}; const status = st.m ? "Mastered" : st.read ? "Studying" : "Not studied yet";
         return `<div class="dcard"><span class="han" style="font-size:26px">${esc(c.w)}</span> <b style="color:var(--jade)">${esc(c.p)}</b> ${esc(c.m)} <span class="pill ${st.m?"m":""}">${status}</span>${c.ex ? `<div class="han" style="font-size:19px;margin-top:2px">${esc(c.ex)} <span class="hint" style="font-family:Figtree,sans-serif;font-size:13px">${esc(c.exen)}</span></div>` : ""}</div>`; }).join("")}
@@ -966,7 +969,7 @@ function renderReading(){
     ${p.author ? `<p class="pauthor han">${p.era ? `[${rubyHTML(p.era, p.eraPy)}] ` : ""}${rubyHTML(p.author, p.authorPy)}</p>` : ""}
     ${p.paras.map((para, ri) => `<p class="para han"><button type="button" class="icon-btn pp" data-rp="${pi}:${ri}" aria-label="Read this line aloud">${ICON_PLAY}</button>${para.map((t, ti) => t.length < 3
         ? `<span class="pu">${esc(t[0])}</span>`
-        : `<span class="tk ${isV(t[0]) ? "v" : ""} ${R.sel && R.sel.key === `${pi}:${ri}:${ti}` ? "on" : ""}" data-tk="${pi}:${ri}:${ti}" role="button" tabindex="0" aria-label="${esc(t[0])}">${rubyHTML(t[0], t[1])}</span>`).join("")}</p>`).join("")}
+        : `<span class="tk ${isV(t[0]) ? "v" : ""} ${oddWord(t) ? "odd" : ""} ${R.sel && R.sel.key === `${pi}:${ri}:${ti}` ? "on" : ""}" data-tk="${pi}:${ri}:${ti}" role="button" tabindex="0" aria-label="${esc(t[0])}">${rubyHTML(t[0], t[1])}</span>`).join("")}</p>`).join("")}
   </section>`).join("");
   const pageView = !!Book.info && set.readView === "page", pages = pageView && pageViewHTML(L, set);
   app.innerHTML = `<div id="notice">${noticeHTML()}</div>
@@ -983,7 +986,7 @@ function renderReading(){
       <button class="btn" data-act="redit">Edit text</button>
       <button class="btn danger" data-act="rdel">${D.confirm === "l" + L.id ? "Tap again to remove" : "Remove passage"}</button>
     </div>
-    <p class="hint" style="margin:0 0 6px"><span class="han" style="font-size:18px;color:var(--ink)">${esc(L.title)}</span>${L.pages ? `, textbook pages ${esc(L.pages)}` : ""}. Tap any word for its meaning.${L.scanned ? ` <span class="pill" title="Found by scanning a textbook PDF">auto-scanned</span>` : ""}</p>
+    <p class="hint" style="margin:0 0 6px"><span class="han" style="font-size:18px;color:var(--ink)">${esc(L.title)}</span>${L.pages ? `, textbook pages ${esc(L.pages)}` : ""}. Tap any word for its meaning.${oddChars(L).length ? ` <span class="pill" style="color:var(--bad);border-color:var(--bad)" title="Characters with no known pinyin, outlined in red">${oddChars(L).length} character${oddChars(L).length === 1 ? "" : "s"} to check</span>` : ""}${L.scanned ? ` <span class="pill" title="Found by scanning a textbook PDF">auto-scanned</span>` : ""}</p>
     ${vocab.length ? `<div class="chips"><span class="hint">Deck words in this lesson:</span>${vocab.map(c => `<button type="button" class="chip han" data-card="${c.id}">${esc(c.w)}</button>`).join("")}</div>` : ""}
     ${R.edit === L.id ? editHTML(L) : pages || `${pageView ? pageViewNote(L) : ""}<div class="read ${set.readPy === false ? "nopy" : ""} ${set.readHl === false ? "" : "hl"}">${pass}</div>`}
     ${sheetHTML()}`;
@@ -1008,6 +1011,7 @@ function pageViewHTML(L, set){
 function editHTML(L){
   return `<div class="panel"><h2 style="font-size:19px">Edit text</h2>
     <p class="hint" style="margin-top:0">Fix any wrong or missing characters, for example ones copied wrongly from a PDF. Put each paragraph on its own line. Pinyin is worked out again when you save.</p>
+    ${oddChars(L).length ? `<p class="odd-note">These characters look wrong (no known pinyin): <span class="han" style="font-size:20px">${oddChars(L).map(esc).join(" ")}</span>. Find them in the text below and replace them with the characters in your book.</p>` : ""}
     ${L.passages.map((p, pi) => `<div class="field" style="margin:10px 0 0"><label>Title</label><input data-etitle="${pi}" value="${esc(p.title)}"></div>
       <textarea class="han scantext" data-etext="${pi}" rows="${Math.min(16, Math.max(5, p.paras.length * 2 + 1))}" aria-label="Passage text">${esc(p.paras.map(paraText).join("\n\n"))}</textarea>`).join("")}
     <div class="row" style="margin-top:10px"><button class="btn primary" data-act="esave">Save</button><button class="btn" data-act="ecancel">Cancel</button></div></div>`;
@@ -1096,6 +1100,10 @@ function plainPassages(pk){
 }
 // Some PDFs store a character as a lookalike code point (a compatibility ideograph or Kangxi radical) that
 // draws the same but isn't the real character. Swap those for the standard ones.
+// A word whose pinyin is missing for one of its characters: that character is unknown to the pinyin helper,
+// which in a school text almost always means it was copied wrongly from a PDF
+const oddWord = t => { const syl = String(t[1] || "").split(" "); return t.length === 3 && [...t[0]].some((c, i) => hasHan(c) && !syl[i]); };
+const oddChars = L => [...new Set(L.passages.flatMap(p => p.paras.flat()).filter(oddWord).flatMap(t => { const syl = String(t[1] || "").split(" "); return [...t[0]].filter((c, i) => hasHan(c) && !syl[i]); }))];
 const fixHan = t => String(t).replace(/[\u2E80-\u2FDF\uF900-\uFAFF]/g, c => c.normalize("NFKC"));
 function pinyinOf(text, pp){
   const chars = [...text], py = pp.pinyin(text, {type:"array", toneType:"symbol"});
@@ -1221,6 +1229,7 @@ async function scanPdf(file){
   });
   // Lessons the character table names come first
   lessons.sort((a, b) => b.listed - a.listed || a.k - b.k);
+  try { const pp = await loadPinyin(); for (const l of lessons) l.odd = [...new Set([...l.text].filter(c => hasHan(c) && pp.pinyin(fixHan(c)) === fixHan(c)))]; } catch (e) {}
   return {name:file.name, lessons, inTable, missing:[...deckChars].filter(ch => !allFound.has(ch))};
 }
 // Character table rows look like "13 要腰阴沉…" or "语文园地六 棍豆汤…". Returns the row labels that hold
@@ -1322,7 +1331,7 @@ const Book = {
     const items = tc.items.filter(it => it.str && it.str.trim()).map(it => ({s:fixHan(it.str), x:it.transform[4], y:it.transform[5], size:Math.hypot(it.transform[2], it.transform[3]) || it.height || 10, w:it.width}));
     const han = items.filter(it => hasHan(it.s));
     // Pinyin is drawn in a custom font, so it reads as plain letters ("xiAo bWi") sitting just above Chinese characters
-    const pinyin = items.filter(it => /^[A-Za-z][A-Za-z ]*$/.test(it.s) && han.some(h => {
+    const pinyin = items.filter(it => /^[\p{Script=Latin}\p{M}' ]+$/u.test(it.s) && /\p{Script=Latin}/u.test(it.s) && han.some(h => {
       const dy = it.y - h.y; return dy > h.size * 0.45 && dy < h.size * 1.7 && it.x < h.x + h.w + h.size * 0.5 && it.x + it.w > h.x - h.size * 0.5;
     }));
     const chars = [];
@@ -1433,7 +1442,7 @@ const Book = {
         const box = b => `left:${b.l}%;top:${b.t}%;width:${b.w}%;height:${b.h}%`;
         el.innerHTML = `<canvas></canvas><div class="pvcov">${pv.covers[n].map(c => `<i style="${box(c)}"></i>`).join("")}</div>
           <div class="pvtaps">${pv.boxes[n].map(b => { const [pi, ri, ti] = b.key.split(":").map(Number), t = L.passages[pi].paras[ri][ti];
-            return `<span class="pvtk ${isV(t[0]) ? "v" : ""}" data-tk="${b.key}" role="button" tabindex="0" aria-label="${esc(t[0])}" style="${box(b)}"></span>`; }).join("")}</div>`;
+            return `<span class="pvtk ${isV(t[0]) ? "v" : ""} ${oddWord(t) ? "odd" : ""}" data-tk="${b.key}" role="button" tabindex="0" aria-label="${esc(t[0])}" style="${box(b)}"></span>`; }).join("")}</div>`;
         this.els.set(key, el);
       }
       el.style.aspectRatio = `${this.pages[n].vp.width} / ${this.pages[n].vp.height}`;
@@ -1525,6 +1534,7 @@ function scanHTML(){
         <span class="hint">${l.found.length} deck character${l.found.length === 1 ? "" : "s"}: </span>${chars(l.found)}</span></label>
       ${l.sel ? `<div class="field" style="margin:8px 0 0"><label>Title</label><input data-ftitle="${l.k}" value="${esc(l.title)}"></div>
         <textarea class="han scantext" data-ftext="${l.k}" rows="${Math.min(14, Math.max(5, l.text.split("\n").length + 1))}" aria-label="Passage text">${esc(l.text)}</textarea>
+        ${(l.odd || []).length ? `<p class="odd-note" style="margin:4px 0 0">These characters look wrong (no known pinyin): <span class="han" style="font-size:20px">${l.odd.map(esc).join(" ")}</span>. Replace them with the characters in your book.</p>` : ""}
         <p class="hint" style="margin:4px 0 0">Some characters may be missing from the PDF’s text. Compare with your book and fix any gaps before saving.</p>` : ""}
     </div>`).join("")}
     ${hidden ? `<p style="margin:10px 0 0"><button class="linkish" data-act="fmore">Show ${hidden} other possible lesson${hidden === 1 ? "" : "s"}</button></p>` : ""}
