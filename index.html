@@ -1113,7 +1113,9 @@ function syllableCentres(it){
   str.replace(/\S+/g, (m, at) => { out.push(it.x + (at + m.length / 2) * per); return m; });
   return out;
 }
-const fixHan = t => String(t).replace(/[\u2E80-\u2FDF\uF900-\uFAFF]/g, c => c.normalize("NFKC"));
+// Publishing fonts also file some characters under private-use codes, which aren't characters at all, and PDF.js
+// gives a shape it can't name as \u0000 (shown as �): those become a □ to fill in, never silently dropped.
+const fixHan = t => String(t).replace(/[\u2E80-\u2FDF\uF900-\uFAFF]/g, c => c.normalize("NFKC")).replace(/[\u0000-\u0008\u000E-\u001F\uE000-\uF8FF\uFFFD\u{F0000}-\u{10FFFF}]/gu, MISSING);   // PDF.js gives \u0000 for a shape with no character
 function pinyinOf(text, pp){
   const chars = [...text], py = pp.pinyin(text, {type:"array", toneType:"symbol"});
   return (py.length === chars.length ? py : chars.map(ch => pp.pinyin(ch))).map((y, i) => y === chars[i] ? "" : y);   // unknown: no pinyin, not the character
@@ -1163,13 +1165,13 @@ const isFurniture = t => /^第[一二三四五六七八九十百\d]+单元/.test
 async function pdfLines(page){
   const vp = page.getViewport({scale:1}), tc = await page.getTextContent();
   const items = tc.items.filter(it => it.str && it.str.trim())
-    .map(it => ({s:it.str, x:it.transform[4], y:it.transform[5], w:it.width || 0, h:Math.abs(it.transform[3]) || it.height || 10}));
+    .map(it => ({s:fixHan(it.str), x:it.transform[4], y:it.transform[5], w:it.width || 0, h:Math.abs(it.transform[3]) || it.height || 10}));
   // In books with pinyin over every character, a syllable with no character under it means the PDF's text left
   // that character out: mark the spot so it can be filled in
-  const hanItems = items.filter(it => hasHan(it.s));
+  const hanItems = items.filter(it => hasHan(it.s) || it.s.includes(MISSING));
   for (const py of items.filter(it => isPinyinText(it.s))) for (const cx of syllableCentres(py)) {
     const line = hanItems.filter(h => py.y - h.y > h.h * 0.45 && py.y - h.y < h.h * 1.7 && Math.abs(h.x - cx) < h.h * 8);
-    if (!line.length || line.some(h => cx >= h.x - 1 && cx <= h.x + h.w + 1)) continue;
+    if (!line.length || line.some(h => cx >= h.x - 1 && cx <= h.x + (h.w || h.h) + 1)) continue;   // an unreadable shape can have no width
     const h = line[0]; items.push({s:MISSING, x:cx - h.h / 2, y:h.y, w:h.h, h:h.h});
   }
   items.sort((a, b) => b.y - a.y || a.x - b.x);
@@ -1360,19 +1362,23 @@ const Book = {
     }));
     const chars = [];
     for (const it of items) {
-      if (pinyin.includes(it) || !(hasHan(it.s) || CJK_PUNCT.test(it.s))) continue;
+      if (pinyin.includes(it) || !(hasHan(it.s) || CJK_PUNCT.test(it.s) || it.s.includes(MISSING))) continue;
       const cs = [...it.s], full = cs.filter(c => c.trim()).length, gaps = cs.length - full;
       // Chinese characters are one em wide; any spaces share what's left
       let adv = it.w / cs.length, gap = adv;
       if (gaps) { const g = (it.w - full * it.size) / gaps; if (g >= 0) { adv = it.size; gap = g; } } else adv = it.w / full;
       let x = it.x;
-      for (const c of cs) { if (!c.trim()) { x += gap; continue; } if (hasHan(c) || CJK_PUNCT.test(c)) chars.push({c, x, y:it.y, size:it.size, w:adv, n}); x += adv; }
+      for (const c of cs) {
+        if (!c.trim()) { x += gap; continue; }
+        if (hasHan(c) || CJK_PUNCT.test(c) || c === MISSING) chars.push({c: c === MISSING ? null : c, x, y:it.y, size:it.size, w:adv || it.size, n});
+        x += adv;
+      }
     }
     // A pinyin syllable with no character under it: the PDF's text left that character out. Keep an empty slot there.
     const real = chars.filter(ch => hasHan(ch.c));
     for (const py of pinyin) for (const cx of syllableCentres(py)) {
       const line = real.filter(ch => py.y - ch.y > ch.size * 0.45 && py.y - ch.y < ch.size * 1.7 && Math.abs(ch.x - cx) < ch.size * 8);
-      if (!line.length || line.some(ch => Math.abs(ch.x + ch.w / 2 - cx) < ch.w * 0.55)) continue;
+      if (!line.length || chars.some(ch => Math.abs(ch.y - line[0].y) < ch.size * 0.3 && Math.abs(ch.x + ch.w / 2 - cx) < ch.w * 0.55)) continue;
       const ref = line[0]; chars.push({c:null, x:cx - ref.size / 2, y:ref.y, size:ref.size, w:ref.size, n});
     }
     const lines = [];
