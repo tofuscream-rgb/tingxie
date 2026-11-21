@@ -225,6 +225,7 @@ h3{margin:22px 0 10px;font-size:18px}
 .pvtk:hover{background:rgba(34,112,95,.12)}
 .pv.hl .pvtk.v{background:rgba(34,112,95,.2)}
 .pvtk.on,.pv.hl .pvtk.v.on{background:rgba(34,112,95,.3);outline:2px solid var(--jade)}
+.pvmiss{position:absolute;border:2px dashed var(--bad);border-radius:3px;cursor:pointer;background:rgba(180,54,45,.08)}
 .tk.odd,.pvtk.odd{outline:2px dashed var(--bad);outline-offset:1px}
 .odd-note{color:var(--bad);font-size:14px;margin:0}
 .dict{font-size:16px;line-height:1.45}
@@ -1011,7 +1012,7 @@ function pageViewHTML(L, set){
 function editHTML(L){
   return `<div class="panel"><h2 style="font-size:19px">Edit text</h2>
     <p class="hint" style="margin-top:0">Fix any wrong or missing characters, for example ones copied wrongly from a PDF. Put each paragraph on its own line. Pinyin is worked out again when you save.</p>
-    ${oddChars(L).length ? `<p class="odd-note">These characters look wrong (no known pinyin): <span class="han" style="font-size:20px">${oddChars(L).map(esc).join(" ")}</span>. Find them in the text below and replace them with the characters in your book.</p>` : ""}
+    ${oddChars(L).length ? `<p class="odd-note">These characters look wrong (no known pinyin): <span class="han" style="font-size:20px">${oddChars(L).map(esc).join(" ")}</span>. Find them in the text below and replace them with the characters in your book${oddChars(L).includes(MISSING) ? `; ${MISSING} marks a character the PDF left out` : ""}.</p>` : ""}
     ${L.passages.map((p, pi) => `<div class="field" style="margin:10px 0 0"><label>Title</label><input data-etitle="${pi}" value="${esc(p.title)}"></div>
       <textarea class="han scantext" data-etext="${pi}" rows="${Math.min(16, Math.max(5, p.paras.length * 2 + 1))}" aria-label="Passage text">${esc(p.paras.map(paraText).join("\n\n"))}</textarea>`).join("")}
     <div class="row" style="margin-top:10px"><button class="btn primary" data-act="esave">Save</button><button class="btn" data-act="ecancel">Cancel</button></div></div>`;
@@ -1103,7 +1104,15 @@ function plainPassages(pk){
 // A word whose pinyin is missing for one of its characters: that character is unknown to the pinyin helper,
 // which in a school text almost always means it was copied wrongly from a PDF
 const oddWord = t => { const syl = String(t[1] || "").split(" "); return t.length === 3 && [...t[0]].some((c, i) => hasHan(c) && !syl[i]); };
-const oddChars = L => [...new Set(L.passages.flatMap(p => p.paras.flat()).filter(oddWord).flatMap(t => { const syl = String(t[1] || "").split(" "); return [...t[0]].filter((c, i) => hasHan(c) && !syl[i]); }))];
+const oddChars = L => { const toks = L.passages.flatMap(p => p.paras.flat()); return [...new Set(toks.filter(oddWord).flatMap(t => { const syl = String(t[1] || "").split(" "); return [...t[0]].filter((c, i) => hasHan(c) && !syl[i]); }).concat(toks.some(t => t[0].includes(MISSING)) ? [MISSING] : []))]; };
+const MISSING = "□";   // stands in for a character the PDF's text left out
+const isPinyinText = t => /^[\p{Script=Latin}\p{M}' ]+$/u.test(t) && /\p{Script=Latin}/u.test(t);
+// Centre x of each syllable in a pinyin text item ("hQ qian" holds two)
+function syllableCentres(it){
+  const str = it.s, out = [], per = it.w / Math.max(1, str.length);
+  str.replace(/\S+/g, (m, at) => { out.push(it.x + (at + m.length / 2) * per); return m; });
+  return out;
+}
 const fixHan = t => String(t).replace(/[\u2E80-\u2FDF\uF900-\uFAFF]/g, c => c.normalize("NFKC"));
 function pinyinOf(text, pp){
   const chars = [...text], py = pp.pinyin(text, {type:"array", toneType:"symbol"});
@@ -1154,8 +1163,16 @@ const isFurniture = t => /^第[一二三四五六七八九十百\d]+单元/.test
 async function pdfLines(page){
   const vp = page.getViewport({scale:1}), tc = await page.getTextContent();
   const items = tc.items.filter(it => it.str && it.str.trim())
-    .map(it => ({s:it.str, x:it.transform[4], y:it.transform[5], w:it.width || 0, h:Math.abs(it.transform[3]) || it.height || 10}))
-    .sort((a, b) => b.y - a.y || a.x - b.x);
+    .map(it => ({s:it.str, x:it.transform[4], y:it.transform[5], w:it.width || 0, h:Math.abs(it.transform[3]) || it.height || 10}));
+  // In books with pinyin over every character, a syllable with no character under it means the PDF's text left
+  // that character out: mark the spot so it can be filled in
+  const hanItems = items.filter(it => hasHan(it.s));
+  for (const py of items.filter(it => isPinyinText(it.s))) for (const cx of syllableCentres(py)) {
+    const line = hanItems.filter(h => py.y - h.y > h.h * 0.45 && py.y - h.y < h.h * 1.7 && Math.abs(h.x - cx) < h.h * 8);
+    if (!line.length || line.some(h => cx >= h.x - 1 && cx <= h.x + h.w + 1)) continue;
+    const h = line[0]; items.push({s:MISSING, x:cx - h.h / 2, y:h.y, w:h.h, h:h.h});
+  }
+  items.sort((a, b) => b.y - a.y || a.x - b.x);
   const lines = [];
   for (const it of items) {
     const ln = lines.find(l => Math.abs(l.y - it.y) < Math.min(l.h, it.h) * 0.4);
@@ -1164,9 +1181,15 @@ async function pdfLines(page){
   return {height:vp.height, width:vp.width, lines: lines.sort((a, b) => b.y - a.y).map(l => {
     l.items.sort((a, b) => a.x - b.x);
     let text = "";
-    l.items.forEach((it, i) => { const prev = l.items[i - 1]; if (prev && it.x - (prev.x + prev.w) > l.h * 0.6) text += " "; text += it.s; });
+    l.items.forEach((it, i) => {   // a space for a real gap; Chinese text is spread out for its pinyin, so it needs a wider one
+      const prev = l.items[i - 1], cjk = prev && /[\p{Script=Han}，。！？；：、“”…□]$/u.test(prev.s) && /^[\p{Script=Han}，。！？；：、“”…□]/u.test(it.s);
+      if (prev && it.x - (prev.x + prev.w) > l.h * (cjk ? 1.5 : 0.6)) text += " "; text += it.s;
+    });
     const end = l.items[l.items.length - 1];
-    return {y:l.y, x:l.items[0].x, r:end.x + end.w, h:l.h, text:fixHan(text.replace(/\s+/g, " ").trim())};
+    text = text.replace(/\s+/g, " ").trim();
+    // a line of prose (it has punctuation) has no spaces between Chinese characters; a word list keeps its gaps
+    if (/[，。！？；：]/.test(text)) text = text.replace(/([\p{Script=Han}，。！？；：、“”‘’…□])\s+(?=[\p{Script=Han}，。！？；：、“”‘’…□])/gu, "$1");
+    return {y:l.y, x:l.items[0].x, r:end.x + end.w, h:l.h, text:fixHan(text)};
   })};
 }
 async function scanPdf(file){
@@ -1229,7 +1252,8 @@ async function scanPdf(file){
   });
   // Lessons the character table names come first
   lessons.sort((a, b) => b.listed - a.listed || a.k - b.k);
-  try { const pp = await loadPinyin(); for (const l of lessons) l.odd = [...new Set([...l.text].filter(c => hasHan(c) && pp.pinyin(fixHan(c)) === fixHan(c)))]; } catch (e) {}
+  try { const pp = await loadPinyin(); for (const l of lessons) l.odd = [...new Set([...l.text].filter(c => hasHan(c) && pp.pinyin(fixHan(c)) === fixHan(c)))]; } catch (e) { for (const l of lessons) l.odd = []; }
+  for (const l of lessons) if (l.text.includes(MISSING)) l.odd.push(MISSING);
   return {name:file.name, lessons, inTable, missing:[...deckChars].filter(ch => !allFound.has(ch))};
 }
 // Character table rows look like "13 要腰阴沉…" or "语文园地六 棍豆汤…". Returns the row labels that hold
@@ -1331,8 +1355,8 @@ const Book = {
     const items = tc.items.filter(it => it.str && it.str.trim()).map(it => ({s:fixHan(it.str), x:it.transform[4], y:it.transform[5], size:Math.hypot(it.transform[2], it.transform[3]) || it.height || 10, w:it.width}));
     const han = items.filter(it => hasHan(it.s));
     // Pinyin is drawn in a custom font, so it reads as plain letters ("xiAo bWi") sitting just above Chinese characters
-    const pinyin = items.filter(it => /^[\p{Script=Latin}\p{M}' ]+$/u.test(it.s) && /\p{Script=Latin}/u.test(it.s) && han.some(h => {
-      const dy = it.y - h.y; return dy > h.size * 0.45 && dy < h.size * 1.7 && it.x < h.x + h.w + h.size * 0.5 && it.x + it.w > h.x - h.size * 0.5;
+    const pinyin = items.filter(it => isPinyinText(it.s) && han.some(h => {
+      const dy = it.y - h.y; return dy > h.size * 0.45 && dy < h.size * 1.7 && Math.abs(h.x - it.x) < h.size * 8;   // above a line of characters (maybe not one: it may be missing)
     }));
     const chars = [];
     for (const it of items) {
@@ -1343,6 +1367,13 @@ const Book = {
       if (gaps) { const g = (it.w - full * it.size) / gaps; if (g >= 0) { adv = it.size; gap = g; } } else adv = it.w / full;
       let x = it.x;
       for (const c of cs) { if (!c.trim()) { x += gap; continue; } if (hasHan(c) || CJK_PUNCT.test(c)) chars.push({c, x, y:it.y, size:it.size, w:adv, n}); x += adv; }
+    }
+    // A pinyin syllable with no character under it: the PDF's text left that character out. Keep an empty slot there.
+    const real = chars.filter(ch => hasHan(ch.c));
+    for (const py of pinyin) for (const cx of syllableCentres(py)) {
+      const line = real.filter(ch => py.y - ch.y > ch.size * 0.45 && py.y - ch.y < ch.size * 1.7 && Math.abs(ch.x - cx) < ch.size * 8);
+      if (!line.length || line.some(ch => Math.abs(ch.x + ch.w / 2 - cx) < ch.w * 0.55)) continue;
+      const ref = line[0]; chars.push({c:null, x:cx - ref.size / 2, y:ref.y, size:ref.size, w:ref.size, n});
     }
     const lines = [];
     for (const ch of chars.sort((a, b) => b.y - a.y || a.x - b.x)) {
@@ -1393,14 +1424,16 @@ const Book = {
     // Align the lesson's characters to the pages' characters in reading order (longest common subsequence,
     // taking the earliest match so a sentence repeated in the exercises doesn't steal the lesson's words)
     const P = pages.flatMap(n => this.pages[n].chars), nL = seq.length, nP = P.length, W = nP + 1;
-    const dp = new Uint32Array((nL + 1) * W), wt = c => hasHan(c) ? 2 : 1;
+    const dp = new Uint32Array((nL + 1) * W);
+    const wt = (a, b) => b === null ? (hasHan(a) || a === MISSING ? 1 : 0) : a === b ? (hasHan(a) ? 2 : 1) : 0;
     for (let i = nL - 1; i >= 0; i--) for (let j = nP - 1; j >= 0; j--) {
-      const m = seq[i].c === P[j].c ? wt(seq[i].c) + dp[(i + 1) * W + j + 1] : 0;
+      const w = wt(seq[i].c, P[j].c), m = w ? w + dp[(i + 1) * W + j + 1] : 0;
       dp[i * W + j] = Math.max(m, dp[(i + 1) * W + j], dp[i * W + j + 1]);
     }
     const at = new Array(nL).fill(null);
     for (let i = 0, j = 0; i < nL && j < nP;) {
-      if (seq[i].c === P[j].c && dp[i * W + j] === wt(seq[i].c) + dp[(i + 1) * W + j + 1]) { at[i] = P[j]; i++; j++; }
+      const w = wt(seq[i].c, P[j].c);
+      if (w && dp[i * W + j] === w + dp[(i + 1) * W + j + 1]) { at[i] = P[j]; i++; j++; }
       else if (dp[i * W + j + 1] === dp[i * W + j]) j++; else i++;
     }
     // A character missing from the PDF's text: estimate its box from its neighbours on the same line
@@ -1426,7 +1459,9 @@ const Book = {
     });
     for (const n of pages) boxes[n] = boxes[n].map(b => Object.assign(this.pct(this.pages[n], b.x1, b.y - b.size * 0.16, b.x2, b.y + b.size * 0.9), {key:b.key}));
     const found = at.filter(Boolean).length;
-    return {pages, boxes, covers, found, total:seq.filter(s => hasHan(s.c)).length};
+    const filled = new Set(at.filter((ch, i) => ch && hasHan(seq[i].c)));
+    const missing = {}; for (const n of pages) missing[n] = this.pages[n].chars.filter(ch => ch.c === null && !filled.has(ch)).map(ch => this.pct(this.pages[n], ch.x, ch.y - ch.size * 0.16, ch.x + ch.w, ch.y + ch.size * 0.9));
+    return {pages, boxes, covers, missing, found, total:seq.filter(s => hasHan(s.c)).length};
   },
   // Put each page in its slot, reusing pages already drawn; draw new ones as they scroll near the screen
   mount(L, isV){
@@ -1442,7 +1477,8 @@ const Book = {
         const box = b => `left:${b.l}%;top:${b.t}%;width:${b.w}%;height:${b.h}%`;
         el.innerHTML = `<canvas></canvas><div class="pvcov">${pv.covers[n].map(c => `<i style="${box(c)}"></i>`).join("")}</div>
           <div class="pvtaps">${pv.boxes[n].map(b => { const [pi, ri, ti] = b.key.split(":").map(Number), t = L.passages[pi].paras[ri][ti];
-            return `<span class="pvtk ${isV(t[0]) ? "v" : ""} ${oddWord(t) ? "odd" : ""}" data-tk="${b.key}" role="button" tabindex="0" aria-label="${esc(t[0])}" style="${box(b)}"></span>`; }).join("")}</div>`;
+            return `<span class="pvtk ${isV(t[0]) ? "v" : ""} ${oddWord(t) ? "odd" : ""}" data-tk="${b.key}" role="button" tabindex="0" aria-label="${esc(t[0])}" style="${box(b)}"></span>`; }).join("")}
+          ${(pv.missing[n] || []).map(b => `<span class="pvmiss" data-act="redit" role="button" tabindex="0" title="This character is missing from the lesson text. Tap to add it." aria-label="Missing character: tap to add it" style="${box(b)}"></span>`).join("")}</div>`;
         this.els.set(key, el);
       }
       el.style.aspectRatio = `${this.pages[n].vp.width} / ${this.pages[n].vp.height}`;
@@ -1534,7 +1570,7 @@ function scanHTML(){
         <span class="hint">${l.found.length} deck character${l.found.length === 1 ? "" : "s"}: </span>${chars(l.found)}</span></label>
       ${l.sel ? `<div class="field" style="margin:8px 0 0"><label>Title</label><input data-ftitle="${l.k}" value="${esc(l.title)}"></div>
         <textarea class="han scantext" data-ftext="${l.k}" rows="${Math.min(14, Math.max(5, l.text.split("\n").length + 1))}" aria-label="Passage text">${esc(l.text)}</textarea>
-        ${(l.odd || []).length ? `<p class="odd-note" style="margin:4px 0 0">These characters look wrong (no known pinyin): <span class="han" style="font-size:20px">${l.odd.map(esc).join(" ")}</span>. Replace them with the characters in your book.</p>` : ""}
+        ${(l.odd || []).length ? `<p class="odd-note" style="margin:4px 0 0">These characters look wrong (no known pinyin): <span class="han" style="font-size:20px">${l.odd.map(esc).join(" ")}</span>. Replace them with the characters in your book${l.odd.includes(MISSING) ? `; ${MISSING} marks a character the PDF left out` : ""}.</p>` : ""}
         <p class="hint" style="margin:4px 0 0">Some characters may be missing from the PDF’s text. Compare with your book and fix any gaps before saving.</p>` : ""}
     </div>`).join("")}
     ${hidden ? `<p style="margin:10px 0 0"><button class="linkish" data-act="fmore">Show ${hidden} other possible lesson${hidden === 1 ? "" : "s"}</button></p>` : ""}
